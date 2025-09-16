@@ -1,0 +1,29 @@
+# Rust
+/target
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+nova-venv/
+*.egg-info/
+*.egg
+
+# JS/Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# General
+.DS_Store
+*.swp
+*.bak
+*.tmp
+*.log
+.env
+.idea/
+.vscode/
