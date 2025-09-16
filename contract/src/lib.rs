@@ -1,4 +1,4 @@
-// Find all our documentation at https://docs.near.org
+// NOVA smart contract version 0.1.0
 use near_sdk::{log, near};
 
 // Define the contract structure
