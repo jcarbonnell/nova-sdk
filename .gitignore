@@ -12,7 +12,6 @@ nova-venv/
 # contract
 contract/target
 contract/*.wasm
-contract/Cargo.lock
 
 # agents
 __pycache__/
