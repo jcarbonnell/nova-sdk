@@ -27,17 +27,8 @@ NOVA complements NEAR’s AI-focused tools:
 - **Intents**: Gates solver access to encrypted payloads, enabling private, AI-driven fulfillment (e.g., cross-chain swaps).
 - **Shade Agents**: Persists off-chain data for autonomous workers, resolving the "oracle problem" with verified inputs (e.g., prediction markets).
 
-## Getting Started
+## Step-by-step guide for developers to integrate NOVA-SDK into their NEAR dApps.
 
-### Prerequisites
-- **NEAR CLI**: `npm install -g near-cli-rs@latest`
-- **Cargo Near**: `cargo install cargo-near`
-- **NEAR AI CLI**: In a Python 3.11 venv, `pip install nearai`
-- **Rust**: `rustup install stable; rustup target add wasm32-unknown-unknown`
-- **Node.js**: For JS SDK (optional for frontend)
-
-### Installation
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/yourusername/NOVA-SDK.git
-   cd NOVA-SDK
+### Potential features to add to the NOVA-SDK
+- Reinforce Access Control with Token Holding (e.g. Access Token NFTs)
+- Automate Metadata Extraction with AI to optimise storage/retrieval on IPFS (e.g. indexing with augmented file metadata)
