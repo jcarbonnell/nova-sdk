@@ -48,7 +48,7 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
         .transact()
         .await?;
     assert!(add_outcome.is_success(), "{:#?}", add_outcome.into_result().unwrap_err());
-    
+
     // Verify is_authorized
     let is_authorized: bool = contract
         .view("is_authorized")
@@ -73,6 +73,35 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
         .await?
         .json()?;
     assert!(!is_authorized, "Member should not be authorized");
+
+    // Test store_group_key
+    let key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; // base64 of 32 zero bytes
+    let store_key_outcome = owner_account
+        .call(&contract.id(), "store_group_key")
+        .args_json(json!({"group_id": "test_group", "key": key}))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(500_000_000_000_000_000_000)) // 0.0005 NEAR
+        .transact()
+        .await?;
+    assert!(store_key_outcome.is_success(), "{:#?}", store_key_outcome.into_result().unwrap_err());
+
+    // Add member again for get_group_key test
+    let add_outcome = owner_account
+        .call(&contract.id(), "add_group_member")
+        .args_json(json!({"group_id": "test_group", "user_id": member_account.id().to_string()}))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(500_000_000_000_000_000_000))
+        .transact()
+        .await?;
+    assert!(add_outcome.is_success(), "{:#?}", add_outcome.into_result().unwrap_err());
+
+    // Test get_group_key
+    let get_key_outcome = member_account
+        .call(&contract.id(), "get_group_key")
+        .args_json(json!({"group_id": "test_group"}))
+        .gas(near_workspaces::types::Gas::from_tgas(100))
+        .transact()
+        .await?;
+    let get_key_result: String = get_key_outcome.json()?;
+    assert_eq!(get_key_result, key, "Key should match stored key");
 
     Ok(())
 }

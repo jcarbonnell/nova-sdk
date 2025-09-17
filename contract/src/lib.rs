@@ -90,6 +90,26 @@ impl Contract {
         let members = self.group_members.get(&group_id).expect("Group not found");
         members.iter().any(|x| *x == user_id)
     }
+
+    #[payable]
+    pub fn store_group_key(&mut self, group_id: String, key: String) {
+        let group = self.groups.get(&group_id).expect("Group not found");
+        let caller = env::predecessor_account_id();
+        assert_eq!(caller, group.owner, "Only group owner can store key");
+        let key_bytes = BASE64_STANDARD.decode(&key).expect("Invalid base64 key");
+        assert_eq!(key_bytes.len(), 32, "Key must be 32 bytes");
+        let mut group = group.clone();
+        group.group_key = Some(key);
+        self.groups.insert(group_id.clone(), group);
+        log!("Key stored for group {}", group_id);
+    }
+
+    pub fn get_group_key(&self, group_id: String) -> String {
+        let caller = env::predecessor_account_id();
+        assert!(self.is_authorized(group_id.clone(), caller), "Unauthorized");
+        let group = self.groups.get(&group_id).expect("Group not found");
+        group.group_key.clone().expect("No key set")
+    }
 }
 
 // Inline tests are not compiled into the final contract
@@ -181,5 +201,53 @@ mod tests {
         let mut contract = Contract::new(owner);
         contract.register_group("test_group".to_string());
         contract.revoke_group_member("test_group".to_string(), member);
+    }
+
+    #[test]
+    fn store_and_get_group_key_works() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let member: AccountId = "member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        contract.add_group_member("test_group".to_string(), member.clone());
+        let key = BASE64_STANDARD.encode([0u8; 32]); // Valid 32-byte key
+        contract.store_group_key("test_group".to_string(), key.clone());
+        let context = get_context(member);
+        testing_env!(context.build());
+        let retrieved_key = contract.get_group_key("test_group".to_string());
+        assert_eq!(retrieved_key, key);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only group owner can store key")]
+    fn store_group_key_fails_non_owner() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let non_owner: AccountId = "not_owner.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner);
+        contract.register_group("test_group".to_string());
+        let context = get_context(non_owner);
+        testing_env!(context.build());
+        let key = BASE64_STANDARD.encode([0u8; 32]);
+        contract.store_group_key("test_group".to_string(), key);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn get_group_key_fails_unauthorized() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let non_member: AccountId = "non_member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        let key = BASE64_STANDARD.encode([0u8; 32]);
+        contract.store_group_key("test_group".to_string(), key);
+        let context = get_context(non_member);
+        testing_env!(context.build());
+        contract.get_group_key("test_group".to_string());
     }
 }
