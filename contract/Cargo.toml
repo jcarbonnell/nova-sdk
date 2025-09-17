@@ -27,13 +27,10 @@ panic = "abort"
 overflow-checks = true
 
 [package.metadata.near.reproducible_build]
-# Rust version for the build (matches near-sdk 5.16 compatibility)
 build_rust_version = "1.82.0"
-# Commit of the project repository to use
-build_commit = "6f0ee1a7f220c48865c87de3917b183eab1d1a78"  # From error output
-# Rust flags to use during build
+build_commit = "af0a9881f325e639acc81f2a6bff936ee4044f08"
+image = "rust:1.82-slim"  # Docker image
 build_rustflags = ["--cfg", "tokio_unstable"]
-# Dependencies to include in the reproducible build
 depends_on = [
     "borsh:1.5.0",
     "near-sdk:5.16.0",
