@@ -32,4 +32,4 @@ NOVA complements NEAR’s AI-focused tools:
 ### Potential features to add to the NOVA-SDK
 - Reinforce Access Control with Token Holding (e.g. Access Token NFTs)
 - Automate Metadata Extraction with AI to optimise storage/retrieval on IPFS (e.g. indexing with augmented file metadata)
-- 
+- Add agents aside the authorized owner to call smart contract?
