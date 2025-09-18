@@ -103,5 +103,33 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
     let get_key_result: String = get_key_outcome.json()?;
     assert_eq!(get_key_result, key, "Key should match stored key");
 
+    // Test record_transaction
+    let record_outcome = owner_account
+        .call(&contract.id(), "record_transaction")
+        .args_json(json!({
+            "group_id": "test_group",
+            "user_id": member_account.id().to_string(),
+            "file_hash": "file_hash",
+            "ipfs_hash": "ipfs_hash"
+        }))
+        .deposit(near_workspaces::types::NearToken::from_yoctonear(1_000_000_000_000_000_000_000)) // 0.001 NEAR
+        .transact()
+        .await?;
+    assert!(record_outcome.is_success(), "{:#?}", record_outcome.into_result().unwrap_err());
+
+    // Test get_transactions_for_group
+    let transactions: Vec<serde_json::Value> = member_account
+        .view(&contract.id(), "get_transactions_for_group")
+        .args_json(json!({
+            "group_id": "test_group",
+            "user_id": member_account.id().to_string()
+        }))
+        .await?
+        .json()?;
+    assert_eq!(transactions.len(), 1, "Should have one transaction");
+    assert_eq!(transactions[0]["user_id"], member_account.id().to_string());
+    assert_eq!(transactions[0]["file_hash"], "file_hash");
+    assert_eq!(transactions[0]["ipfs_hash"], "ipfs_hash");
+
     Ok(())
 }

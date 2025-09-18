@@ -2073,8 +2073,11 @@ name = "nova"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "hex",
  "near-sdk",
  "near-workspaces",
+ "schemars 0.8.22",
+ "serde",
  "serde_json",
  "tokio",
 ]

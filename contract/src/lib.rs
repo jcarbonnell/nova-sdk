@@ -1,8 +1,10 @@
 // NOVA contract version 0.1.0
 use near_sdk::{env, log, near, AccountId, BorshStorageKey, PanicOnDefault};
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
-use near_sdk::store::{LookupMap, Vector as StoreVec};
+use near_sdk::store::{LookupMap, Vector as StoreVec, IterableMap};
 use near_sdk::base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use near_sdk::serde::{Deserialize, Serialize};
+use schemars::JsonSchema;
 
 // Define the contract structure
 #[near(contract_state)]
@@ -11,18 +13,29 @@ pub struct Contract {
     owner: AccountId,
     groups: LookupMap<String, Group>,
     group_members: LookupMap<String, StoreVec<AccountId>>,
+    transactions: IterableMap<String, Transaction>,
 }
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
     Groups,
     GroupMembers,
+    Transactions,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone)]
 pub struct Group {
     owner: AccountId,
     group_key: Option<String>,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Transaction {
+    group_id: String,
+    user_id: String,
+    file_hash: String,
+    ipfs_hash: String,
 }
 
 // Implement the contract structure
@@ -34,6 +47,7 @@ impl Contract {
             owner,
             groups: LookupMap::new(StorageKey::Groups),
             group_members: LookupMap::new(StorageKey::GroupMembers),
+            transactions: IterableMap::new(StorageKey::Transactions),
         }
     }
 
@@ -110,9 +124,44 @@ impl Contract {
         let group = self.groups.get(&group_id).expect("Group not found");
         group.group_key.clone().expect("No key set")
     }
+
+    #[payable]
+    pub fn record_transaction(&mut self, group_id: String, user_id: AccountId, file_hash: String, ipfs_hash: String) -> String {
+        assert!(self.groups.contains_key(&group_id), "Group not found");
+        assert!(self.is_authorized(group_id.clone(), user_id.clone()), "User not authorized");
+        let caller = env::predecessor_account_id();
+        assert_eq!(caller, self.owner, "Only owner can record"); // MVP: restrict to owner; expand to agents later
+        let trans_id = hex::encode(env::sha256(&format!(
+            "{}{}{}{}{}",
+            group_id,
+            user_id,
+            file_hash,
+            ipfs_hash,
+            env::block_timestamp()
+        ).as_bytes()));
+        let tx = Transaction {
+            group_id,
+            user_id: user_id.to_string(),
+            file_hash,
+            ipfs_hash,
+        };
+        self.transactions.insert(trans_id.clone(), tx);
+        log!("Transaction recorded: {}", trans_id);
+        trans_id
+    }
+
+    pub fn get_transactions_for_group(&self, group_id: String, user_id: AccountId) -> Vec<Transaction> {
+        assert!(self.groups.contains_key(&group_id), "Group not found");
+        assert!(self.is_authorized(group_id.clone(), user_id.clone()) || user_id == self.owner, "Unauthorized");
+        self.transactions
+            .values()
+            .filter(|tx| tx.group_id == group_id)
+            .cloned()
+            .collect()
+    }
 }
 
-// Inline tests are not compiled into the final contract
+// Inline tests (not compiled into the final contract)
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +298,85 @@ mod tests {
         let context = get_context(non_member);
         testing_env!(context.build());
         contract.get_group_key("test_group".to_string());
+    }
+
+    #[test]
+    fn record_transaction_works() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let member: AccountId = "member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        contract.add_group_member("test_group".to_string(), member.clone());
+        let trans_id = contract.record_transaction(
+            "test_group".to_string(),
+            member.clone(),
+            "file_hash".to_string(),
+            "ipfs_hash".to_string(),
+        );
+        let transactions = contract.get_transactions_for_group("test_group".to_string(), member.clone());
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(transactions[0].group_id, "test_group");
+        assert_eq!(transactions[0].user_id, member.to_string());
+        assert_eq!(transactions[0].file_hash, "file_hash");
+        assert_eq!(transactions[0].ipfs_hash, "ipfs_hash");
+        assert!(contract.transactions.contains_key(&trans_id));
+    }
+
+    #[test]
+    #[should_panic(expected = "User not authorized")]
+    fn record_transaction_fails_unauthorized() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let non_member: AccountId = "non_member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        contract.record_transaction(
+            "test_group".to_string(),
+            non_member,
+            "file_hash".to_string(),
+            "ipfs_hash".to_string(),
+        );
+    }
+
+    #[test]
+    fn get_transactions_for_group_works() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let member: AccountId = "member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        contract.add_group_member("test_group".to_string(), member.clone());
+        contract.record_transaction(
+            "test_group".to_string(),
+            member.clone(),
+            "file_hash1".to_string(),
+            "ipfs_hash1".to_string(),
+        );
+        contract.record_transaction(
+            "test_group".to_string(),
+            member.clone(),
+            "file_hash2".to_string(),
+            "ipfs_hash2".to_string(),
+        );
+        let transactions = contract.get_transactions_for_group("test_group".to_string(), member.clone());
+        assert_eq!(transactions.len(), 2);
+        assert!(transactions.iter().any(|tx| tx.file_hash == "file_hash1" && tx.ipfs_hash == "ipfs_hash1"));
+        assert!(transactions.iter().any(|tx| tx.file_hash == "file_hash2" && tx.ipfs_hash == "ipfs_hash2"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn get_transactions_for_group_fails_unauthorized() {
+        let owner: AccountId = "owner.testnet".parse().expect("Invalid AccountId");
+        let non_member: AccountId = "non_member.testnet".parse().expect("Invalid AccountId");
+        let context = get_context(owner.clone());
+        testing_env!(context.build());
+        let mut contract = Contract::new(owner.clone());
+        contract.register_group("test_group".to_string());
+        contract.get_transactions_for_group("test_group".to_string(), non_member);
     }
 }
