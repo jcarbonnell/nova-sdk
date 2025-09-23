@@ -1,0 +1,24 @@
+{
+  "name": "storage-agent",
+  "version": "0.0.9",
+  "description": "Handles file upload/list/retrieve in NOVA (encrypt/IPFS/record).",
+  "category": "agent",
+  "tags": ["storage", "ipfs", "file", "nova"],
+  "details": {
+    "agent": {
+      "defaults": {
+        "model": "llama-v3p1-70b-instruct",
+        "model_provider": "fireworks",
+        "model_temperature": 1.0,
+        "model_max_tokens": 16384
+      },
+      "env_vars": {
+        "CONTRACT_ID": "nova-sdk-2.testnet",
+        "IPFS_API_KEY": "",
+        "IPFS_API_SECRET": "",
+        "NEAR_PRIVATE_KEY": ""
+      }
+    }
+  },
+  "show_entry": true
+}
