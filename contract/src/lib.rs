@@ -61,8 +61,11 @@ impl Contract {
             group_key: None 
         };
         self.groups.insert(group_id.clone(), group);
-        self.group_members.insert(group_id.clone(), StoreVec::new(StorageKey::GroupMembers));
-        log!("Group {} registered by {}", group_id, caller);
+        let members = StoreVec::new(b"m");
+        self.group_members.insert(group_id.clone(), members);
+        let mut members = self.group_members.get_mut(&group_id).expect("Group members not initialized");
+        members.push(caller.clone());  // Adds owner as member
+        log!("Group {} registered by {} (owner added as member)", group_id, caller);
     }
 
     pub fn groups_contains_key(&self, group_id: String) -> bool {

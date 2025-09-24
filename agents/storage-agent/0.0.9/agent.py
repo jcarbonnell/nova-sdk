@@ -72,15 +72,15 @@ async def retrieve_file(env: Environment, user_id: str, query: str):
         key_result = await near.view(
             contract_id=contract_id,
             method_name="get_group_key",
-            args={"group_id": group_id}
+            args={"group_id": group_id, "user_id": user_id}
         )
         group_key = key_result.result
         # Fetch from IPFS
-        encrypted_data = await retrieve_from_ipfs(ipfs_hash, env)  # Define func below
+        encrypted_data = await retrieve_from_ipfs(ipfs_hash, env)
         # Decrypt
-        decrypted_data = decrypt_file(encrypted_data, group_key)  # Define below
+        decrypted_data = decrypt_file(encrypted_data, group_key)
         # Write to thread
-        output_filename = f"decrypted_{ipfs_hash[:8]}.txt"  # Adapt ext
+        output_filename = f"decrypted_{ipfs_hash[:8]}.txt"
         env.write_file(output_filename, decrypted_data)
         env.add_reply(f"✅ Retrieved/decrypted {ipfs_hash} from {group_id}. Download: {output_filename}")
     except Exception as e:
