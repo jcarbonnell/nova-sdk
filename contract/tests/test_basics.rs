@@ -94,13 +94,14 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
     assert!(add_outcome.is_success(), "{:#?}", add_outcome.into_result().unwrap_err());
 
     // Test get_group_key
-    let get_key_outcome = member_account
-        .call(&contract.id(), "get_group_key")
-        .args_json(json!({"group_id": "test_group"}))
-        .gas(near_workspaces::types::Gas::from_tgas(100))
-        .transact()
-        .await?;
-    let get_key_result: String = get_key_outcome.json()?;
+    let get_key_result: String = contract
+        .view("get_group_key")
+        .args_json(json!({
+            "group_id": "test_group",
+            "user_id": member_account.id().to_string()
+        }))
+        .await?
+        .json()?;
     assert_eq!(get_key_result, key, "Key should match stored key");
 
     // Test record_transaction

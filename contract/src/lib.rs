@@ -118,9 +118,8 @@ impl Contract {
         log!("Key stored for group {}", group_id);
     }
 
-    pub fn get_group_key(&self, group_id: String) -> String {
-        let caller = env::predecessor_account_id();
-        assert!(self.is_authorized(group_id.clone(), caller), "Unauthorized");
+    pub fn get_group_key(&self, group_id: String, user_id: AccountId) -> String {
+        assert!(self.is_authorized(group_id.clone(), user_id), "Unauthorized");
         let group = self.groups.get(&group_id).expect("Group not found");
         group.group_key.clone().expect("No key set")
     }
@@ -263,9 +262,9 @@ mod tests {
         contract.add_group_member("test_group".to_string(), member.clone());
         let key = BASE64_STANDARD.encode([0u8; 32]); // Valid 32-byte key
         contract.store_group_key("test_group".to_string(), key.clone());
-        let context = get_context(member);
+        let context = get_context(member.clone());
         testing_env!(context.build());
-        let retrieved_key = contract.get_group_key("test_group".to_string());
+        let retrieved_key = contract.get_group_key("test_group".to_string(), member.clone());
         assert_eq!(retrieved_key, key);
     }
 
@@ -295,9 +294,9 @@ mod tests {
         contract.register_group("test_group".to_string());
         let key = BASE64_STANDARD.encode([0u8; 32]);
         contract.store_group_key("test_group".to_string(), key);
-        let context = get_context(non_member);
+        let context = get_context(non_member.clone());
         testing_env!(context.build());
-        contract.get_group_key("test_group".to_string());
+        contract.get_group_key("test_group".to_string(), non_member.clone());
     }
 
     #[test]
