@@ -75,6 +75,56 @@ async def run(env: Environment):
         env.add_reply(f"Routed to auth-agent for {expected_op}. Track thread: {thread_id} (timed out after 15s)")
         env.request_user_input()
         return
+    
+    # Routing to storage-agent
+    storage_ops = ["upload file", "list files", "retrieve file"]
+    expected_op = None
+    if any(op in user_query for op in storage_ops):
+        if "upload file" in user_query:
+            expected_op = "upload"
+        elif "list files" in user_query:
+            expected_op = "list"
+        elif "retrieve file" in user_query:
+            expected_op = "retrieve"
+
+        thread_id = env.run_agent(
+            "nova-sdk.near/storage-agent/latest",
+            query=user_query,
+            thread_mode=ThreadMode.FORK,
+        )
+        env.add_system_log(f"Forked to storage-agent for {expected_op}: {thread_id}")
+
+        # Poll for storage success
+        pre_fork_count = len(env.list_messages(thread_id=thread_id))
+        max_attempts = 15
+        for attempt in range(max_attempts):
+            try:
+                all_messages = env.list_messages(thread_id=thread_id)
+                new_messages = all_messages[pre_fork_count:]
+                assistant_msgs = [m for m in new_messages if m.get("role") == "assistant"]
+                if assistant_msgs:
+                    last_assistant = assistant_msgs[-1].get("content", "")
+                    if expected_op == "upload" and ("uploaded" in last_assistant.lower() or "ipfs" in last_assistant.lower()):
+                        env.add_reply(f"✅ Routed to storage-agent: {last_assistant}")
+                        env.request_user_input()
+                        return
+                    elif expected_op == "list" and ("files in" in last_assistant.lower() or "no files" in last_assistant.lower()):
+                        env.add_reply(f"✅ Routed to storage-agent: {last_assistant}")
+                        env.request_user_input()
+                        return
+                    elif expected_op == "retrieve" and ("retrieved" in last_assistant.lower() or "download" in last_assistant.lower()):
+                        env.add_reply(f"✅ Routed to storage-agent: {last_assistant}")
+                        env.request_user_input()
+                        return
+                time.sleep(1)
+            except Exception as e:
+                env.add_system_log(f"Poll error (attempt {attempt}): {e}")
+                time.sleep(1)
+                continue
+
+        env.add_reply(f"Routed to storage-agent for {expected_op}. Track thread: {thread_id} (timed out after 15s)")
+        env.request_user_input()
+        return
 
     # Fallback to LLM
     result = env.completion([prompt] + messages)
