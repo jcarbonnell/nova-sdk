@@ -87,7 +87,7 @@ async def run(env: Environment):
     messages = env.list_messages()
     if messages:
         user_query = messages[-1].get("content", "").strip().lower()
-        user_id = "nova-sdk-2.testnet"
+        user_id = "nova-sdk-2.testnet" #env.signer_account_id in production
         await handle_auth_op(env, user_query, user_id)
         env.request_user_input()
         return

@@ -55,16 +55,13 @@ impl Contract {
     pub fn register_group(&mut self, group_id: String) {
         assert!(!self.groups.contains_key(&group_id), "Group exists");
         let caller = env::predecessor_account_id();
-        assert_eq!(caller, self.owner, "Only owner can register");  // Simplify for MVP; add agents later
-        let group = Group { 
-            owner: caller.clone(), 
-            group_key: None 
-        };
+        assert_eq!(caller, self.owner, "Only owner can register");  // MVP: limit to owner, add agents later.
+        let group = Group { owner: caller.clone(), group_key: None };
         self.groups.insert(group_id.clone(), group);
         let members = StoreVec::new(b"m");
-        self.group_members.insert(group_id.clone(), members);
         let mut members = self.group_members.get_mut(&group_id).expect("Group members not initialized");
-        members.push(caller.clone());  // Adds owner as member
+        members.push(caller.clone());  // Adds owner as a member
+        self.group_members.insert(group_id.clone(), members);
         log!("Group {} registered by {} (owner added as member)", group_id, caller);
     }
 
@@ -132,7 +129,7 @@ impl Contract {
         assert!(self.groups.contains_key(&group_id), "Group not found");
         assert!(self.is_authorized(group_id.clone(), user_id.clone()), "User not authorized");
         let caller = env::predecessor_account_id();
-        assert_eq!(caller, self.owner, "Only owner can record"); // MVP: restrict to owner; expand to agents later
+        assert_eq!(caller, self.owner, "Only owner can record"); // MVP: limit to owner, add agents later.
         let trans_id = hex::encode(env::sha256(&format!(
             "{}{}{}{}{}",
             group_id,

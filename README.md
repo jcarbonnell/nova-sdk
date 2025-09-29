@@ -27,9 +27,12 @@ NOVA complements NEAR’s AI-focused tools:
 - **Intents**: Gates solver access to encrypted payloads, enabling private, AI-driven fulfillment (e.g., cross-chain swaps).
 - **Shade Agents**: Persists off-chain data for autonomous workers, resolving the "oracle problem" with verified inputs (e.g., prediction markets).
 
-## Step-by-step guide for developers to integrate NOVA-SDK into their NEAR dApps.
+### Potential add to the NOVA-SDK
+- Implement the pay-per-action model by adding fees to #[payable] methods. Setup fees to nova-sdk.near.
+- Allow agents/members to record_transaction so they can upload files (currently only owner)
+- Allow manager- storage-agent's call get_transactions_for_group to list files.
 
-### Potential features to add to the NOVA-SDK
+- Add view for group_members? so anyone can see who's in that group?
 - Reinforce Access Control with Token Holding (e.g. Access Token NFTs)
 - Automate Metadata Extraction with AI to optimise storage/retrieval on IPFS (e.g. indexing with augmented file metadata)
-- Setup fees to nova-sdk.near
+- Add price to transaction so file owners can monetize their datasets to be accessed through IPFS.

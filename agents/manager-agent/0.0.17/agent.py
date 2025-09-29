@@ -12,7 +12,7 @@ async def run(env: Environment):
         return
 
     user_query = messages[-1]["content"].strip().lower()
-    user_id = "nova-sdk-2.testnet"
+    user_id = "nova-sdk-2.testnet" #MVP: ok, env.signer_account_id for production
     # Greeting handler
     if any(greeting in user_query for greeting in ["hi", "hello", "hey", "help"]):
         env.add_reply("Hi! I'm the NOVA Manager Agent. Here's how to get started:\n- register group <id> (e.g., 'register group test')\n- add member <group> <user> (e.g., 'add member test nova-sdk-2.testnet')\n- revoke member <group> <user>\n- is authorized <group> <user>\n- groups contains <group>\nWhat would you like to do?")
