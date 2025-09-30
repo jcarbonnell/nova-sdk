@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 import base64
 import requests
+import time
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 # Load .env variables
 load_dotenv()
@@ -58,6 +61,33 @@ def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes
                 continue
             raise e
     raise Exception(f"Failed after {max_retries} retries")
+
+@mcp.tool
+def encrypt_data(data: str, key: str) -> str:  # Input b64 data/key; return b64 encrypted
+    """Encrypts base64 data with AES-CBC key (32 bytes)."""
+    data_bytes = base64.b64decode(data)
+    key_bytes = base64.b64decode(key)[:32]
+    iv = os.urandom(16)
+    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    pad_len = 16 - (len(data_bytes) % 16)
+    padded = data_bytes + bytes([pad_len] * pad_len)
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    return base64.b64encode(iv + encrypted).decode('utf-8')
+
+@mcp.tool
+def decrypt_data(encrypted: str, key: str) -> str:  # Input b64 encrypted/key; return b64 decrypted
+    """Decrypts base64 encrypted data with AES-CBC key."""
+    encrypted_bytes = base64.b64decode(encrypted)
+    key_bytes = base64.b64decode(key)[:32]
+    iv = encrypted_bytes[:16]
+    ciphertext = encrypted_bytes[16:]
+    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_padded = decryptor.update(ciphertext) + decryptor.finalize()
+    pad_len = decrypted_padded[-1]
+    decrypted = decrypted_padded[:-pad_len]
+    return base64.b64encode(decrypted).decode('utf-8')
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
