@@ -1,6 +1,6 @@
 {
   "name": "storage-agent",
-  "version": "0.0.39",
+  "version": "0.0.52",
   "description": "Handles file upload/list/retrieve in NOVA (encrypt/IPFS/record).",
   "category": "agent",
   "tags": ["storage", "ipfs", "file", "nova"],
@@ -17,7 +17,8 @@
         "IPFS_API_KEY": "",
         "IPFS_API_SECRET": "",
         "NEAR_PRIVATE_KEY": "",
-        "PINATA_GATEWAY": ""
+        "PINATA_GATEWAY": "https://green-main-mockingbird-133.mypinata.cloud/ipfs",
+        "MCP_URL": "https://nova-mcp.fastmcp.app/mcp"
       }
     }
   },

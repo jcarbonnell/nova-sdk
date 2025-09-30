@@ -13,13 +13,12 @@ load_dotenv()
 mcp = FastMCP(name="nova-mcp")
 
 @mcp.tool
-def ipfs_upload(data: bytes, filename: str) -> str:
+def ipfs_upload(data: str, filename: str) -> str:
     """Uploads encrypted data to IPFS via Pinata and returns CID."""
-    # Decode base64 data to bytes
     data_bytes = base64.b64decode(data)
     url = "https://api.pinata.cloud/pinning/pinFileToIPFS"
     headers = {
-        "pinata_api_key": os.environ["IPFS_API_KEY"],  # Use env vars
+        "pinata_api_key": os.environ["IPFS_API_KEY"],
         "pinata_secret_api_key": os.environ["IPFS_API_SECRET"]
     }
     files = {"file": (filename, data_bytes)}
@@ -31,11 +30,8 @@ def ipfs_upload(data: bytes, filename: str) -> str:
 @mcp.tool
 def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes
     """Retrieves data from IPFS via Pinata gateway."""
-    import requests
-    import base64
-    import time
     gateway = os.environ.get("PINATA_GATEWAY", "https://gateway.pinata.cloud/ipfs").rstrip('/')
-    url = f"{gateway}/{cid.lstrip('/').strip()}"  # Normalize path
+    url = f"{gateway}/ipfs/{cid.lstrip('/').strip()}"
     if not cid.startswith('Qm'):
         raise Exception(f"Invalid CID: {cid}")
     headers = {
@@ -64,7 +60,7 @@ def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes
 
 @mcp.tool
 def encrypt_data(data: str, key: str) -> str:  # Input b64 data/key; return b64 encrypted
-    """Encrypts base64 data with AES-CBC key (32 bytes)."""
+    """Encrypts base64 data with AES-CBC key (32 bytes padded)."""
     data_bytes = base64.b64decode(data)
     key_bytes = base64.b64decode(key)[:32]
     iv = os.urandom(16)
@@ -76,7 +72,7 @@ def encrypt_data(data: str, key: str) -> str:  # Input b64 data/key; return b64 
     return base64.b64encode(iv + encrypted).decode('utf-8')
 
 @mcp.tool
-def decrypt_data(encrypted: str, key: str) -> str:  # Input b64 encrypted/key; return b64 decrypted
+def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
     """Decrypts base64 encrypted data with AES-CBC key."""
     encrypted_bytes = base64.b64decode(encrypted)
     key_bytes = base64.b64decode(key)[:32]
