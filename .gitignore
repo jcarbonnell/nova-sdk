@@ -23,6 +23,9 @@ __pycache__/
 *.egg-info/
 *.egg
 
+# server
+mcp-server/.env
+
 # JS/Node
 node_modules/
 npm-debug.log
