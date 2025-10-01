@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
+import asyncio
 
 # Load .env variables
 load_dotenv()
@@ -88,20 +89,20 @@ def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
     return base64.b64encode(decrypted).decode('utf-8')
 
 @mcp.tool
-def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
+async def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
     """Records file tx on NOVA contract, returns trans_id."""
     contract_id = os.environ["CONTRACT_ID"]
     private_key = os.environ["NEAR_PRIVATE_KEY"]
     rpc = os.environ["RPC_URL"]
     near = Account(user_id, private_key, rpc)
-    result = near.call(
+    result = await near.function_call(  # Async, correct method
         contract_id=contract_id,
         method_name="record_transaction",
         args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        attached_deposit=2000000000000000000000  # 0.002 NEAR yocto
+        attached_deposit="2000000000000000000000"  # 0.002 NEAR as str (yocto)
     )
     if "SuccessValue" in result.status:
-        return str(result.result)  # trans_id
+        return str(result.value)  # trans_id from result.value (or result.receipt_outcome if needed)
     raise Exception(f"Record failed: {result.status}")
 
 if __name__ == "__main__":
