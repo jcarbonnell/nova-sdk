@@ -9,7 +9,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
-from py_near.rpc_client import RpcClient
 import asyncio
 
 # Load .env variables
@@ -105,11 +104,20 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     """Helper: View group key (authorized). Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    client = RpcClient(rpc)
-    result = await client.view(contract_id, "get_group_key", {"group_id": group_id, "user_id": user_id})
-    if "SuccessValue" in result:
-        return result["SuccessValue"]
-    raise Exception(f"Get key failed: {result} (unauthorized?)")
+    # Dummy Account for view (no real key needed; views are read-only)
+    dummy_account = Account("system.testnet", "ed25519:dummy_key_ignored_for_view", rpc)
+    try:
+        result = await dummy_account.view(
+            contract_id=contract_id,
+            method_name="get_group_key",
+            args={"group_id": group_id, "user_id": user_id}
+        )
+        if "SuccessValue" in result:
+            return result["SuccessValue"]
+        raise Exception(f"Get key failed: {result} (unauthorized or no key?)")
+    except Exception as e:
+        print(f"_get_group_key error: {e}")  # Inspect-safe log
+        raise
 
 # MCP tools use helpers
 @mcp.tool
