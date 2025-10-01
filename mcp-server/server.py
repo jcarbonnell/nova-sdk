@@ -100,7 +100,7 @@ async def record_near_transaction(group_id: str, user_id: str, file_hash: str, i
         contract_id=contract_id,
         method_name="record_transaction",
         args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        attached_deposit=int("2000000000000000000000")  # 0.002 NEAR yocto
+        amount=int("2000000000000000000000")  # 0.002 NEAR yocto
     )
     if "SuccessValue" in result.status:
         trans_id = result.status['SuccessValue']  # Direct str/hex
