@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
+from py_near.rpc_client import RpcClient
 import asyncio
 
 # Load .env variables
@@ -104,16 +105,11 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     """Helper: View group key (authorized). Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Static view (no signer; assumes public or pre-auth)
-    result = await Account.call_static(  # py_near static call
-        contract_id=contract_id,
-        method_name="get_group_key",
-        args={"group_id": group_id, "user_id": user_id},
-        rpc_url=rpc
-    )
-    if "SuccessValue" in result.status:
-        return result.status['SuccessValue']
-    raise Exception(f"Get key failed: {result.status} (unauthorized?)")
+    client = RpcClient(rpc)
+    result = await client.view(contract_id, "get_group_key", {"group_id": group_id, "user_id": user_id})
+    if "SuccessValue" in result:
+        return result["SuccessValue"]
+    raise Exception(f"Get key failed: {result} (unauthorized?)")
 
 # MCP tools use helpers
 @mcp.tool
