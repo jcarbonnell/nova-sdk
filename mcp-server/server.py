@@ -151,18 +151,19 @@ async def get_group_key(group_id: str, user_id: str) -> str:
 
 @mcp.tool
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
-    """Full E2E upload: get key → encrypt → IPFS pin → record tx. Returns {'cid': str, 'trans_id': str}."""
+    """Full E2E: get key → encrypt → IPFS pin → record tx. Returns {'cid': str, 'trans_id': str}."""
+    # Internal calls via .tool.function
     # Get key (reuse tool)
-    key = await get_group_key(group_id, user_id)  # Internal async call
+    key = await get_group_key.tool.function(group_id=group_id, user_id=user_id)  # Async ok
     # Encrypt (reuse)
-    encrypted_b64 = encrypt_data(data, key)  # Sync ok here
+    encrypted_b64 = encrypt_data.tool.function(data=data, key=key)  # Sync
     # Upload (reuse async)
-    cid = await ipfs_upload(encrypted_b64, filename)  # Internal async
+    cid = await ipfs_upload.tool.function(data=encrypted_b64, filename=filename)  # Async
     # Hash (local, on original data)
-    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
+    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()  # Local
     # Record (reuse async)
-    trans_id = await record_near_transaction(group_id, user_id, file_hash, cid)
-    print(f"Composite upload: CID {cid}, Tx {trans_id} for {filename}")
+    trans_id = await record_near_transaction.tool.function(group_id=group_id, user_id=user_id, file_hash=file_hash, ipfs_hash=cid)
+    print(f"Composite: CID {cid}, Tx {trans_id} for {filename}")
     return {"cid": cid, "trans_id": trans_id}
 
 if __name__ == "__main__":
