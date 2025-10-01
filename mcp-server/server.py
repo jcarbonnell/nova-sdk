@@ -101,23 +101,33 @@ async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, 
     raise Exception(f"Record failed: {result.status}")
 
 async def _get_group_key(group_id: str, user_id: str) -> str:
-    """Helper: View group key (authorized). Returns base64 key."""
+    """Helper: Raw RPC view for key (bypasses Account auth). Returns base64 or error str."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Dummy Account for view (no real key needed; views are read-only)
-    dummy_account = Account("system.testnet", "ed25519:dummy_key_ignored_for_view", rpc)
-    try:
-        result = await dummy_account.view(
-            contract_id=contract_id,
-            method_name="get_group_key",
-            args={"group_id": group_id, "user_id": user_id}
-        )
-        if "SuccessValue" in result:
-            return result["SuccessValue"]
-        raise Exception(f"Get key failed: {result} (unauthorized or no key?)")
-    except Exception as e:
-        print(f"_get_group_key error: {e}")  # Inspect-safe log
-        raise
+    payload = {
+        "jsonrpc": "2.0",
+        "id": int(time.time()),
+        "method": "query",
+        "params": {
+            "request_type": "call_function",
+            "final": True,
+            "account_id": contract_id,
+            "method_name": "get_group_key",
+            "args_base64": base64.b64encode(json.dumps({"group_id": group_id, "user_id": user_id}).encode()).decode()
+        }
+    }
+    headers = {'Content-Type': 'application/json'}
+    response = await asyncio.to_thread(lambda: requests.post(rpc, json=payload, headers=headers, timeout=10))
+    if response.status_code == 200:
+        result = response.json()
+        if "error" in result:
+            raise Exception(f"RPC error: {result['error']}")
+        value_b64 = result['result']['value']
+        value = base64.b64decode(value_b64).decode('utf-8')
+        if "No key set" in value or "Unauthorized" in value:
+            raise Exception(value)
+        return value
+    raise Exception(f"View failed {response.status_code}: {response.text[:100]}")
 
 # MCP tools use helpers
 @mcp.tool
