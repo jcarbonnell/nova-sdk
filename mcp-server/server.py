@@ -1,3 +1,4 @@
+import hashlib
 import os
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -147,6 +148,22 @@ async def get_group_key(group_id: str, user_id: str) -> str:
         print(f"Retrieved key for {group_id}/{user_id}")
         return key
     raise Exception(f"Get failed: {result.status} (unauthorized?)")
+
+@mcp.tool
+async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
+    """Full E2E upload: get key → encrypt → IPFS pin → record tx. Returns {'cid': str, 'trans_id': str}."""
+    # Get key (reuse tool)
+    key = await get_group_key(group_id, user_id)  # Internal async call
+    # Encrypt (reuse)
+    encrypted_b64 = encrypt_data(data, key)  # Sync ok here
+    # Upload (reuse async)
+    cid = await ipfs_upload(encrypted_b64, filename)  # Internal async
+    # Hash (local, on original data)
+    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
+    # Record (reuse async)
+    trans_id = await record_near_transaction(group_id, user_id, file_hash, cid)
+    print(f"Composite upload: CID {cid}, Tx {trans_id} for {filename}")
+    return {"cid": cid, "trans_id": trans_id}
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
