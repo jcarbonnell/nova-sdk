@@ -148,7 +148,7 @@ async def get_group_key(group_id: str, user_id: str) -> str:
         return key
     raise Exception(f"Get failed: {result.status} (unauthorized?)")
 
-@mcp.resource('/auth_status')
+@mcp.resource('/auth_status/{user_id}')
 async def auth_status(user_id: str, group_id: str = None) -> dict:
     """Resource: Check user auth for group(s). Returns {'authorized': bool, 'groups': list[str]}."""
     contract_id = os.environ["CONTRACT_ID"]
