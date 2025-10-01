@@ -149,7 +149,7 @@ async def get_group_key(group_id: str, user_id: str) -> str:
     raise Exception(f"Get failed: {result.status} (unauthorized?)")
 
 @mcp.resource('/auth_status/{user_id}')
-async def auth_status(user_id: str, group_id: str = None) -> dict:
+def auth_status(user_id: str, group_id: str = None) -> dict:
     """Resource: Check user auth for group(s). Returns {'authorized': bool, 'groups': list[str]}."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
@@ -157,27 +157,29 @@ async def auth_status(user_id: str, group_id: str = None) -> dict:
         authorized = False
         groups = []
         if group_id:
-            result = await Account.call_static(
+            # Sync view (no await)
+            account = Account(user_id, "ed25519:dummy", rpc)  # Dummy key for view
+            result = account.view(
                 contract_id=contract_id,
                 method_name="is_authorized",
-                args={"group_id": group_id, "user_id": user_id},
-                rpc_url=rpc
+                args={"group_id": group_id, "user_id": user_id}
             )
             authorized = result == "true"
         else:
-            # Placeholder: Use "default" or expand
-            tx_result = await Account.call_static(
+            # Placeholder sync
+            account = Account(user_id, "ed25519:dummy", rpc)
+            tx_result = account.view(
                 contract_id=contract_id,
                 method_name="get_transactions_for_group",
-                args={"group_id": "default", "user_id": user_id},
-                rpc_url=rpc
+                args={"group_id": "default", "user_id": user_id}
             )
             authorized = len(tx_result) > 0
             groups = ["default"] if authorized else []
         print(f"Auth for {user_id}/{group_id or 'all'}: {authorized}, groups: {groups}")
         return {"authorized": authorized, "groups": groups}
     except Exception as e:
-        raise Exception(f"Auth check failed: {e}")
+        print(f"Auth check error: {e}")  # Cloud log
+        return {"error": str(e), "authorized": False, "groups": []}
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
