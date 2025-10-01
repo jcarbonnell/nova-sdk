@@ -11,6 +11,7 @@ import py_near
 from py_near.account import Account
 import asyncio
 import hashlib
+import borsh
 from borsh import schema, types
 
 # Load .env variables
@@ -107,8 +108,8 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     # Borsh schema for args: [String, String]
-    args_schema = schema.Schema([types.String(), types.String()])
-    args_list = [group_id, user_id]
+    args_schema = borsh.schema([borsh.types.String(), borsh.types.String()])
+    args_list = [group_id, user_id]  # Positional list
     args_bytes = args_schema.serialize(args_list)
     args_b64 = base64.b64encode(args_bytes).decode()
     payload = {
@@ -131,7 +132,7 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
             raise Exception(f"RPC error: {result['error']}")
         value_b64 = result['result']['result']['value']
         # Borsh result schema: [String] (SuccessValue as single String)
-        result_schema = schema.Schema([types.String()])
+        result_schema = borsh.schema([borsh.types.String()])
         parsed_bytes = base64.b64decode(value_b64)
         parsed = result_schema.deserialize(parsed_bytes)
         return parsed[0]  # First (only) String
