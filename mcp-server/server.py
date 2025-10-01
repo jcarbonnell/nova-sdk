@@ -9,6 +9,7 @@ from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
 import asyncio
+import json
 
 # Load .env variables
 load_dotenv()
@@ -148,26 +149,24 @@ async def get_group_key(group_id: str, user_id: str) -> str:
         return key
     raise Exception(f"Get failed: {result.status} (unauthorized?)")
 
-@mcp.resource('/auth_status/{user_id}')
-def auth_status(user_id: str, group_id: str = None) -> dict:
-    """Resource: Check user auth for group(s). Returns {'authorized': bool, 'groups': list[str]}."""
+@mcp.tool
+async def auth_status(user_id: str, group_id: str = None) -> str:
+    """Tool: Check user auth for group(s). Returns JSON {'authorized': bool, 'groups': list[str]}."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     try:
         authorized = False
         groups = []
         if group_id:
-            # Sync view (no await)
-            account = Account(user_id, "ed25519:dummy", rpc)  # Dummy key for view
-            result = account.view(
+            account = Account(user_id, "ed25519:dummy_view_only", rpc)
+            result = account.view(  # Sync view
                 contract_id=contract_id,
                 method_name="is_authorized",
                 args={"group_id": group_id, "user_id": user_id}
             )
             authorized = result == "true"
         else:
-            # Placeholder sync
-            account = Account(user_id, "ed25519:dummy", rpc)
+            account = Account(user_id, "ed25519:dummy_view_only", rpc)
             tx_result = account.view(
                 contract_id=contract_id,
                 method_name="get_transactions_for_group",
@@ -175,11 +174,13 @@ def auth_status(user_id: str, group_id: str = None) -> dict:
             )
             authorized = len(tx_result) > 0
             groups = ["default"] if authorized else []
-        print(f"Auth for {user_id}/{group_id or 'all'}: {authorized}, groups: {groups}")
-        return {"authorized": authorized, "groups": groups}
+        result_dict = {"authorized": authorized, "groups": groups}
+        print(f"Auth for {user_id}/{group_id or 'all'}: {result_dict}")
+        return json.dumps(result_dict)  # JSON str for structuredContent
     except Exception as e:
-        print(f"Auth check error: {e}")  # Cloud log
-        return {"error": str(e), "authorized": False, "groups": []}
+        error_dict = {"error": str(e), "authorized": False, "groups": []}
+        print(f"Auth error: {e}")
+        return json.dumps(error_dict)
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
