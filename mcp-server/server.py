@@ -11,8 +11,6 @@ import py_near
 from py_near.account import Account
 import asyncio
 import hashlib
-import borsh
-from borsh import types
 
 # Load .env variables
 load_dotenv()
@@ -104,39 +102,21 @@ async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, 
     raise Exception(f"Record failed: {result.status}")
 
 async def _get_group_key(group_id: str, user_id: str) -> str:
-    """Helper: Borsh-serialized RPC view for key. Returns base64 key."""
+    """Helper: View group key via py_near (auto-Borsh). Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Borsh schema for args: [string, string]
-    args_schema = [types.string, types.string]
-    args_list = [group_id, user_id]
-    args_bytes = borsh.serialize(args_schema, args_list)
-    args_b64 = base64.b64encode(args_bytes).decode()
-    payload = {
-        "jsonrpc": "2.0",
-        "id": int(time.time()),
-        "method": "query",
-        "params": {
-            "request_type": "call_function",
-            "final": True,
-            "account_id": contract_id,
-            "method_name": "get_group_key",
-            "args_base64": args_b64
-        }
-    }
-    headers = {'Content-Type': 'application/json'}
-    response = await asyncio.to_thread(lambda: requests.post(rpc, json=payload, headers=headers, timeout=10))
-    if response.status_code == 200:
-        result = response.json()
-        if "error" in result:
-            raise Exception(f"RPC error: {result['error']}")
-        value_b64 = result['result']['result']['value']
-        # Borsh result schema: [string] (SuccessValue as single string)
-        result_schema = [types.string]
-        parsed_bytes = base64.b64decode(value_b64)
-        parsed = borsh.deserialize(result_schema, parsed_bytes)
-        return parsed[0]  # First string
-    raise Exception(f"View failed {response.status_code}: {response.text[:100]}")
+    # Dummy Account for view (key ignored; predecessor = user_id for auth)
+    dummy_key = "ed25519:dummy_ignored_for_view"  # Placeholder
+    account = Account(user_id, dummy_key, rpc)
+    try:
+        result = await account.view(
+            contract_id=contract_id,
+            method_name="get_group_key",
+            args={"group_id": group_id, "user_id": user_id}
+        )
+        return result  # Direct str (SuccessValue)
+    except Exception as e:
+        raise Exception(f"View failed: {e} (unauthorized or no key?)")
 
 # MCP tools use helpers
 @mcp.tool
