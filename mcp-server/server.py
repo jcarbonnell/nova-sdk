@@ -11,7 +11,7 @@ import py_near
 from py_near.account import Account
 import asyncio
 import hashlib
-from borsh_construct import CStruct, String
+from borsh import schema, types
 
 # Load .env variables
 load_dotenv()
@@ -106,11 +106,10 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     """Helper: Borsh-serialized RPC view for key. Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Borsh args struct
-    args_struct = CStruct("group_id" / String, "user_id" / String)
-    # Fix: Pass dict as positional 'obj' to build
-    args_obj = {"group_id": group_id, "user_id": user_id}
-    args_bytes = args_struct.build(args_obj)
+    # Borsh schema for args: [String, String]
+    args_schema = schema.Schema([types.String(), types.String()])
+    args_list = [group_id, user_id]
+    args_bytes = args_schema.serialize(args_list)
     args_b64 = base64.b64encode(args_bytes).decode()
     payload = {
         "jsonrpc": "2.0",
@@ -131,11 +130,11 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
         if "error" in result:
             raise Exception(f"RPC error: {result['error']}")
         value_b64 = result['result']['result']['value']
-        # Borsh result struct (SuccessValue: String)
-        result_struct = CStruct("SuccessValue" / String)
-        # Fix: Parse returns struct; access .SuccessValue
-        parsed = result_struct.parse(base64.b64decode(value_b64))
-        return parsed.SuccessValue
+        # Borsh result schema: [String] (SuccessValue as single String)
+        result_schema = schema.Schema([types.String()])
+        parsed_bytes = base64.b64decode(value_b64)
+        parsed = result_schema.deserialize(parsed_bytes)
+        return parsed[0]  # First (only) String
     raise Exception(f"View failed {response.status_code}: {response.text[:100]}")
 
 # MCP tools use helpers
