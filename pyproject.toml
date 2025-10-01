@@ -1,0 +1,4 @@
+[project]
+dependencies = [
+    "py_near==1.1.59",
+]
