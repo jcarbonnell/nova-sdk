@@ -7,6 +7,7 @@ import time
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
+from py_near.account import Account
 
 # Load .env variables
 load_dotenv()
@@ -88,23 +89,20 @@ def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
 
 @mcp.tool
 def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
-    """Records file tx on NOVA contract; returns trans_id or error."""
+    """Records file tx on NOVA contract, returns trans_id."""
     contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"].replace("ed25519:", "").strip()
-    rpc = os.environos.environ["RPC_URL"]
-    near = py_near.Account(user_id, private_key, rpc)
-    try:
-        result = near.call(
-            contract_id=contract_id,
-            method_name="record_transaction",
-            args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-            amount=2000000000000000000000  # 0.002 NEAR yocto
-        )
-        trans_id = result.result if hasattr(result, 'result') else "unknown"
-        tx_hash = result.transaction.hash if hasattr(result, 'transaction') else "unknown"
-        return f"Success: {trans_id} (tx: {tx_hash})"
-    except Exception as e:
-        raise Exception(f"Tx failed: {str(e)}")
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    near = Account(user_id, private_key, rpc)
+    result = near.call(
+        contract_id=contract_id,
+        method_name="record_transaction",
+        args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
+        attached_deposit=2000000000000000000000  # 0.002 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        return str(result.result)  # trans_id
+    raise Exception(f"Record failed: {result.status}")
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
