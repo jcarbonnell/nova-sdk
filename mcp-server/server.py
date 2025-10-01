@@ -6,6 +6,7 @@ import requests
 import time
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+import py_near
 
 # Load .env variables
 load_dotenv()
@@ -84,6 +85,26 @@ def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
     pad_len = decrypted_padded[-1]
     decrypted = decrypted_padded[:-pad_len]
     return base64.b64encode(decrypted).decode('utf-8')
+
+@mcp.tool
+def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
+    """Records file tx on NOVA contract; returns trans_id or error."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"].replace("ed25519:", "").strip()
+    rpc = os.environos.environ["RPC_URL"]
+    near = py_near.Account(user_id, private_key, rpc)
+    try:
+        result = near.call(
+            contract_id=contract_id,
+            method_name="record_transaction",
+            args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
+            amount=2000000000000000000000  # 0.002 NEAR yocto
+        )
+        trans_id = result.result if hasattr(result, 'result') else "unknown"
+        tx_hash = result.transaction.hash if hasattr(result, 'transaction') else "unknown"
+        return f"Success: {trans_id} (tx: {tx_hash})"
+    except Exception as e:
+        raise Exception(f"Tx failed: {str(e)}")
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
