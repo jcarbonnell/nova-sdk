@@ -106,9 +106,11 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     """Helper: Borsh-serialized RPC view for key. Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Borsh args struct (match sig: group_id: String, user_id: String)
+    # Borsh args struct
     args_struct = CStruct("group_id" / String, "user_id" / String)
-    args_bytes = args_struct.build(group_id=group_id, user_id=user_id)
+    # Fix: Pass dict as positional 'obj' to build
+    args_obj = {"group_id": group_id, "user_id": user_id}
+    args_bytes = args_struct.build(args_obj)
     args_b64 = base64.b64encode(args_bytes).decode()
     payload = {
         "jsonrpc": "2.0",
@@ -131,6 +133,7 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
         value_b64 = result['result']['result']['value']
         # Borsh result struct (SuccessValue: String)
         result_struct = CStruct("SuccessValue" / String)
+        # Fix: Parse returns struct; access .SuccessValue
         parsed = result_struct.parse(base64.b64decode(value_b64))
         return parsed.SuccessValue
     raise Exception(f"View failed {response.status_code}: {response.text[:100]}")
