@@ -99,7 +99,7 @@ async def record_near_transaction(group_id: str, user_id: str, file_hash: str, i
         contract_id=contract_id,
         method_name="record_transaction",
         args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        amount="2000000000000000000000"  # 0.002 NEAR as str (yocto)
+        amount=int("2000000000000000000000")  # 0.002 NEAR as str (yocto)
     )
     if "SuccessValue" in result.status:
         return str(result.value)  # trans_id from result.value (or result.receipt_outcome if needed)
