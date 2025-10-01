@@ -148,13 +148,12 @@ async def get_group_key(group_id: str, user_id: str) -> str:
         return key
     raise Exception(f"Get failed: {result.status} (unauthorized?)")
 
-@mcp.resource
+@mcp.resource('/auth_status')
 async def auth_status(user_id: str, group_id: str = None) -> dict:
     """Resource: Check user auth for group(s). Returns {'authorized': bool, 'groups': list[str]}."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     try:
-        # View is_authorized (if group_id provided)
         authorized = False
         groups = []
         if group_id:
@@ -164,18 +163,17 @@ async def auth_status(user_id: str, group_id: str = None) -> dict:
                 args={"group_id": group_id, "user_id": user_id},
                 rpc_url=rpc
             )
-            authorized = result == "true"  # Bool as str from Borsh
+            authorized = result == "true"
         else:
-            # List all groups where authorized (chain get_transactions_for_group, but simplify: assume default or fetch all via new view if added)
-            # For MVP: Call get_transactions_for_group on "default" or placeholder
+            # Placeholder: Use "default" or expand
             tx_result = await Account.call_static(
                 contract_id=contract_id,
                 method_name="get_transactions_for_group",
-                args={"group_id": "default", "user_id": user_id},  # Or loop over known groups
+                args={"group_id": "default", "user_id": user_id},
                 rpc_url=rpc
             )
-            authorized = len(tx_result) > 0  # If txs exist, authorized
-            groups = ["default"] if authorized else []  # Expand later
+            authorized = len(tx_result) > 0
+            groups = ["default"] if authorized else []
         print(f"Auth for {user_id}/{group_id or 'all'}: {authorized}, groups: {groups}")
         return {"authorized": authorized, "groups": groups}
     except Exception as e:
