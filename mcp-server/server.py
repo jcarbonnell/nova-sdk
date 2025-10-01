@@ -124,7 +124,7 @@ async def store_group_key(group_id: str, key: str) -> str:
         contract_id=contract_id,
         method_name="store_group_key",
         args={"group_id": group_id, "key": key},
-        attached_deposit=int("500000000000000000000")  # 0.0005 NEAR yocto
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
     )
     if "SuccessValue" in result.status:
         print(f"Key stored for {group_id}: {result.status['SuccessValue']}")
