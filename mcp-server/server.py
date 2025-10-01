@@ -153,12 +153,12 @@ async def get_group_key(group_id: str, user_id: str) -> str:
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
     """Full E2E: get key → encrypt → IPFS pin → record tx. Returns {'cid': str, 'trans_id': str}."""
     try:
-        # Direct call to get_group_key (async)
+        # Direct to get_group_key (async)
         key = await get_group_key(group_id, user_id)
         # Direct to encrypt_data (sync)
         encrypted_b64 = encrypt_data(data, key)
-        # Direct to ipfs_upload (sync in your code; make async if needed)
-        cid = await ipfs_upload(encrypted_b64, filename)  # Await if changed to async
+        # Direct to ipfs_upload (sync; await if you make it async)
+        cid = ipfs_upload(encrypted_b64, filename)  # Sync call
         # Local hash
         file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
         # Direct to record_near_transaction (async)
