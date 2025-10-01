@@ -1,4 +1,5 @@
 py_near==1.1.59
+py_near_primitives==0.2.4
 pynacl==1.6.0
 base58==2.1.1
 loguru==0.7.3
