@@ -108,5 +108,45 @@ async def record_near_transaction(group_id: str, user_id: str, file_hash: str, i
         return trans_id
     raise Exception(f"Record failed: {result.status}")
 
+@mcp.tool
+async def store_group_key(group_id: str, key: str) -> str:
+    """Stores symmetric key (base64, 32 bytes) for group on NOVA contract. Returns 'Stored'."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner/signer
+    near = Account(signer, private_key, rpc)
+    # Validate key locally (32 bytes post-decode)
+    key_bytes = base64.b64decode(key)
+    if len(key_bytes) != 32:
+        raise Exception(f"Invalid key length: {len(key_bytes)} (must be 32 bytes)")
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="store_group_key",
+        args={"group_id": group_id, "key": key},
+        attached_deposit=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Key stored for {group_id}: {result.status['SuccessValue']}")
+        return "Stored"
+    raise Exception(f"Store failed: {result.status}")
+
+@mcp.tool
+async def get_group_key(group_id: str, user_id: str) -> str:
+    """Retrieves group key if authorized. Returns base64 key."""
+    contract_id = os.environ["CONTRACT_ID"]
+    rpc = os.environ["RPC_URL"]
+    result = await Account.call_static(  # Static view (no signer needed)
+        contract_id=contract_id,
+        method_name="get_group_key",
+        args={"group_id": group_id, "user_id": user_id},
+        rpc_url=rpc
+    )
+    if "SuccessValue" in result.status:
+        key = result.status['SuccessValue']
+        print(f"Retrieved key for {group_id}/{user_id}")
+        return key
+    raise Exception(f"Get failed: {result.status} (unauthorized?)")
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
