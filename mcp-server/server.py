@@ -152,19 +152,21 @@ async def get_group_key(group_id: str, user_id: str) -> str:
 @mcp.tool
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
     """Full E2E: get key → encrypt → IPFS pin → record tx. Returns {'cid': str, 'trans_id': str}."""
-    # Direct internal calls
-    # Get key (reuse tool)
-    key = await get_group_key(group_id=group_id, user_id=user_id)  # Async reuse
-    # Encrypt (reuse)
-    encrypted_b64 = encrypt_data(data=data, key=key)  # Sync reuse
-    # Upload (reuse async)
-    cid = await ipfs_upload(data=encrypted_b64, filename=filename)  # Async reuse
-    # Hash (local, on original data)
-    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()  # Local hash
-    # Record (reuse async)
-    trans_id = await record_near_transaction(group_id=group_id, user_id=user_id, file_hash=file_hash, ipfs_hash=cid)  # Async reuse
-    print(f"Composite: CID {cid}, Tx {trans_id} for {filename}")
-    return {"cid": cid, "trans_id": trans_id}
+    try:
+        # Direct call to get_group_key (async)
+        key = await get_group_key(group_id, user_id)
+        # Direct to encrypt_data (sync)
+        encrypted_b64 = encrypt_data(data, key)
+        # Direct to ipfs_upload (sync in your code; make async if needed)
+        cid = await ipfs_upload(encrypted_b64, filename)  # Await if changed to async
+        # Local hash
+        file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
+        # Direct to record_near_transaction (async)
+        trans_id = await record_near_transaction(group_id, user_id, file_hash, cid)
+        print(f"Composite: CID {cid}, Tx {trans_id} for {filename}")
+        return {"cid": cid, "trans_id": trans_id}
+    except Exception as e:
+        raise Exception(f"Chain failed: {str(e)}")
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
