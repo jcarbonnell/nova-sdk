@@ -94,15 +94,18 @@ async def record_near_transaction(group_id: str, user_id: str, file_hash: str, i
     contract_id = os.environ["CONTRACT_ID"]
     private_key = os.environ["NEAR_PRIVATE_KEY"]
     rpc = os.environ["RPC_URL"]
-    near = Account(user_id, private_key, rpc)
-    result = await near.function_call(  # Async, correct method
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", user_id)  # Use signer if set
+    near = Account(signer, private_key, rpc)
+    result = await near.function_call(
         contract_id=contract_id,
         method_name="record_transaction",
         args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        amount=int("2000000000000000000000")  # 0.002 NEAR as str (yocto)
+        attached_deposit=int("2000000000000000000000")  # 0.002 NEAR yocto
     )
     if "SuccessValue" in result.status:
-        return str(result.value)  # trans_id from result.value (or result.receipt_outcome if needed)
+        trans_id = result.status['SuccessValue']  # Direct str/hex
+        print(f"Recorded tx: {trans_id}")  # Log for debug
+        return trans_id
     raise Exception(f"Record failed: {result.status}")
 
 if __name__ == "__main__":
