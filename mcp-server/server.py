@@ -12,7 +12,7 @@ from py_near.account import Account
 import asyncio
 import hashlib
 import borsh
-from borsh import schema, types
+from borsh import types
 
 # Load .env variables
 load_dotenv()
@@ -107,10 +107,10 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
     """Helper: Borsh-serialized RPC view for key. Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    # Borsh schema for args: [String, String]
-    args_schema = borsh.schema([borsh.types.String(), borsh.types.String()])
-    args_list = [group_id, user_id]  # Positional list
-    args_bytes = args_schema.serialize(args_list)
+    # Borsh schema for args: [string, string]
+    args_schema = [types.string, types.string]
+    args_list = [group_id, user_id]
+    args_bytes = borsh.serialize(args_schema, args_list)
     args_b64 = base64.b64encode(args_bytes).decode()
     payload = {
         "jsonrpc": "2.0",
@@ -131,11 +131,11 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
         if "error" in result:
             raise Exception(f"RPC error: {result['error']}")
         value_b64 = result['result']['result']['value']
-        # Borsh result schema: [String] (SuccessValue as single String)
-        result_schema = borsh.schema([borsh.types.String()])
+        # Borsh result schema: [string] (SuccessValue as single string)
+        result_schema = [types.string]
         parsed_bytes = base64.b64decode(value_b64)
-        parsed = result_schema.deserialize(parsed_bytes)
-        return parsed[0]  # First (only) String
+        parsed = borsh.deserialize(result_schema, parsed_bytes)
+        return parsed[0]  # First string
     raise Exception(f"View failed {response.status_code}: {response.text[:100]}")
 
 # MCP tools use helpers
