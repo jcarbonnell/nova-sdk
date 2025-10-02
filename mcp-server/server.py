@@ -159,30 +159,96 @@ async def get_group_key(group_id: str, user_id: str) -> str:
             raise Exception(f"Unauthorized for {group_id}/{user_id}")
         raise Exception(f"Get failed: {str(e)}")
     
+# Private helpers for chaining (extracted from tools)
+async def _get_group_key(group_id: str, user_id: str) -> str:
+    """Internal: Fetch key (reuse get_group_key logic)."""
+    contract_id = os.environ["CONTRACT_ID"]
+    rpc = os.environ["RPC_URL"]
+    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy for view
+    try:
+        acc = Account(user_id, private_key, rpc)
+        await acc.startup()
+        result = await acc.view_function(
+            contract_id=contract_id,
+            method_name="get_group_key",
+            args={"group_id": group_id, "user_id": user_id}
+        )
+        key = result.result
+        if not key:
+            raise Exception(f"No key for {group_id}/{user_id}")
+        key_bytes = base64.b64decode(key)
+        if len(key_bytes) != 32:
+            raise Exception(f"Invalid key length: {len(key_bytes)}")
+        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
+        return key
+    except Exception as e:
+        if "Unauthorized" in str(e):
+            raise Exception(f"Unauthorized for {group_id}/{user_id}")
+        raise Exception(f"Get key failed: {str(e)}")
+
+def _encrypt_data(data: str, key: str) -> str:
+    """Internal: Encrypt (sync; reuse encrypt_data)."""
+    data_bytes = base64.b64decode(data)
+    key_bytes = base64.b64decode(key)[:32]
+    iv = os.urandom(16)
+    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    pad_len = 16 - (len(data_bytes) % 16)
+    padded = data_bytes + bytes([pad_len] * pad_len)
+    encrypted = encryptor.update(padded) + encryptor.finalize()
+    return base64.b64encode(iv + encrypted).decode('utf-8')
+
+async def _ipfs_upload(data: str, filename: str) -> str:
+    """Internal: Upload (async for consistency)."""
+    data_bytes = base64.b64decode(data)
+    url = "https://api.pinata.cloud/pinning/pinFileToIPFS"
+    headers = {
+        "pinata_api_key": os.environ["IPFS_API_KEY"],
+        "pinata_secret_api_key": os.environ["IPFS_API_SECRET"]
+    }
+    files = {"file": (filename, data_bytes)}
+    response = await asyncio.to_thread(lambda: requests.post(url, headers=headers, files=files, timeout=10))
+    if response.status_code == 200:
+        return response.json()["IpfsHash"]
+    raise Exception(f"Upload failed: {response.text}")
+
+async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
+    """Internal: Record tx (reuse record_near_transaction)."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", user_id)
+    near = Account(signer, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="record_transaction",
+        args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
+        amount=int("2000000000000000000000")  # 0.002 NEAR
+    )
+    if "SuccessValue" in result.status:
+        trans_id = result.status['SuccessValue']
+        print(f"Recorded tx: {trans_id}")
+        return trans_id
+    raise Exception(f"Record failed: {result.status}")
+    
 @mcp.tool
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
     """Full upload: get_key → encrypt → IPFS pin → record tx. Args: b64 data. Returns {'cid': str, 'trans_id': str, 'file_hash': str}."""
-    # Step 1: Fetch key (chains to get_group_key tool)
-    key_result = await mcp.call_tool("get_group_key", {"group_id": group_id, "user_id": user_id})
-    key = key_result["structuredContent"]["result"]  # Extract from tool response
-    # Step 2: Encrypt (chains to encrypt_data)
-    encrypt_result = await mcp.call_tool("encrypt_data", {"data": data, "key": key})
-    encrypted_b64 = encrypt_result["structuredContent"]["result"]
-    # Step 3: Upload (chains to ipfs_upload)
-    upload_result = await mcp.call_tool("ipfs_upload", {"data": encrypted_b64, "filename": filename})
-    cid = upload_result["structuredContent"]["result"]
-    # Step 4: Local hash (fast, no tool needed)
-    import hashlib
-    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
-    # Step 5: Record (chains to record_near_transaction)
-    record_result = await mcp.call_tool("record_near_transaction", {
-        "group_id": group_id,
-        "user_id": user_id,
-        "file_hash": file_hash,
-        "ipfs_hash": cid
-    })
-    trans_id = record_result["structuredContent"]["result"]
-    return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
+    try:
+        # Chain 1: Get key
+        key = await _get_group_key(group_id, user_id)
+        # Chain 2: Encrypt
+        encrypted_b64 = _encrypt_data(data, key)
+        # Chain 3: Upload
+        cid = await _ipfs_upload(encrypted_b64, filename)
+        # Chain 4: Hash (local)
+        import hashlib
+        file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
+        # Chain 5: Record
+        trans_id = await _record_near_transaction(group_id, user_id, file_hash, cid)
+        return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
+    except Exception as e:
+        raise Exception(f"Composite failed: {str(e)}")
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = None) -> str:
