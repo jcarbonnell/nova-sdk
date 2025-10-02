@@ -8,7 +8,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
-from py_near.rpc import RPC
 import asyncio
 import json
 
@@ -139,16 +138,32 @@ async def get_group_key(group_id: str, user_id: str) -> str:
     contract_id = os.environ["CONTRACT_ID"]
     rpc_url = os.environ["RPC_URL"]
     try:
-        rpc = RPC(rpc_url)  # Direct RPC client, no key
-        args = {"group_id": group_id, "user_id": user_id}
-        result = await rpc.view_call(contract_id, "get_group_key", args)
-        key = result  # Direct str (base64 from contract)
+        # Direct RPC view_call
+        payload = {
+            "jsonrpc": "2.0",
+            "id": "dontcare",
+            "method": "query",
+            "params": {
+                "request_type": "call_function",
+                "final": True,
+                "account_id": contract_id,
+                "method_name": "get_group_key",
+                "args_base64": base64.b64encode(json.dumps({"group_id": group_id, "user_id": user_id}).encode()).decode()
+            }
+        }
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(rpc_url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        if "error" in result:
+            raise Exception(f"RPC error: {result['error']}")
+        key = result["result"]["result"]  # Direct str from base64 decode in contract
         if not key:
             raise Exception("No key set or unauthorized")
         print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
         return key
     except Exception as e:
-        print(f"Get key error: {str(e)}")  # Log for debug
+        print(f"Get key error: {str(e)}")
         raise Exception(f"Get failed: {str(e)}")
 
 @mcp.tool
