@@ -184,5 +184,36 @@ async def composite_upload(group_id: str, user_id: str, data: str, filename: str
     trans_id = record_result["structuredContent"]["result"]
     return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
 
+@mcp.tool
+async def auth_status(user_id: str, group_id: str = "test_group") -> dict:
+    """Tool: Check user auth/groups on NOVA contract. Returns {'authorized': bool, 'groups': list[str], 'member_count': int}."""
+    contract_id = os.environ["CONTRACT_ID"]
+    rpc = os.environ["RPC_URL"]
+    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy for views
+    try:
+        acc = Account(user_id, private_key, rpc)
+        await acc.startup()
+        # Check authorized
+        auth_result = await acc.view_function(
+            contract_id=contract_id,
+            method_name="is_authorized",
+            args={"group_id": group_id, "user_id": user_id}
+        )
+        authorized = auth_result.result
+        # List user's groups via transactions (filter unique; assume default if none)
+        txs_result = await acc.view_function(
+            contract_id=contract_id,
+            method_name="get_transactions_for_group",
+            args={"group_id": group_id, "user_id": user_id}  # Reuse for sample; expand to all if multi-view added
+        )
+        groups = list(set(tx["group_id"] for tx in txs_result.result)) if txs_result.result else [group_id]
+        member_count = len(groups)
+        print(f"Auth for {user_id} in {group_id}: authorized={authorized}, groups={groups}")
+        return {"authorized": authorized, "groups": groups, "member_count": member_count}
+    except Exception as e:
+        if "Unauthorized" in str(e):
+            return {"authorized": False, "groups": [], "member_count": 0}
+        raise Exception(f"Auth query failed: {str(e)}")
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
