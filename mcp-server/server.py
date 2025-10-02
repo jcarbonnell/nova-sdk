@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
+from py_near.client import Client
 import asyncio
 import json
 
@@ -138,10 +139,11 @@ async def get_group_key(group_id: str, user_id: str) -> str:
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     try:
-        result = await near.view(  # py_near's async view; no signer/deposit
+        near = Client(rpc)  # No signer needed for view
+        result = await near.view(
             contract_id=contract_id,
             method_name="get_group_key",
-            args={"group_id": group_id, "user_id": user_id}  # Dict auto-JSON
+            args={"group_id": group_id, "user_id": user_id}
         )
         key = result.result  # Str (base64 key from contract)
         if not key or len(base64.b64decode(key)) != 32:
