@@ -137,15 +137,19 @@ async def get_group_key(group_id: str, user_id: str) -> str:
     """Retrieves group key if authorized. Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    near = Account(None, None, rpc)  # no signer for view
-    result = await near.view(
+    result = await Account.call_static(  # Static view (no signer needed)
         contract_id=contract_id,
         method_name="get_group_key",
-        args={"group_id": group_id, "user_id": user_id}
+        args={"group_id": group_id, "user_id": user_id},
+        rpc_url=rpc
     )
-    key = result.result  # Direct str (base64)
-    print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")  # Log prefix
-    return key
+    if "SuccessValue" in result.status:
+        key = result.status['SuccessValue']
+        print(f"Retrieved key for {group_id}/{user_id}")
+        return key
+    raise Exception(f"Get failed: {result.status} (unauthorized?)")
+
+
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = None) -> str:
