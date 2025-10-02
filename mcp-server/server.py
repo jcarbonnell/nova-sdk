@@ -133,56 +133,25 @@ async def store_group_key(group_id: str, key: str) -> str:
     raise Exception(f"Store failed: {result.status}")
 
 @mcp.tool
-def get_group_key(group_id: str, user_id: str) -> str:  # Sync for simplicity (views are fast)
-    """Retrieves group key if authorized. Returns base64 key."""
+async def get_group_key(group_id: str, user_id: str) -> str:
+    """Retrieves symmetric key (base64, 32 bytes) for authorized user in group. Raises if unauthorized/no key."""
     contract_id = os.environ["CONTRACT_ID"]
-    rpc_url = os.environ["RPC_URL"]
+    rpc = os.environ["RPC_URL"]
     try:
-        args = {"group_id": group_id, "user_id": user_id}
-        args_json = json.dumps(args)
-        args_b64 = base64.b64encode(args_json.encode('utf-8')).decode('utf-8')
-        print(f"Debug: Args JSON: {args_json}, B64: {args_b64[:50]}...")  # Log payload
-
-        payload = {
-            "jsonrpc": "2.0",
-            "id": "get_key_call",
-            "method": "query",
-            "params": {
-                "request_type": "call_function",
-                "final": True,
-                "account_id": contract_id,
-                "method_name": "get_group_key",
-                "args_base64": args_b64
-            }
-        }
-        headers = {'Content-Type': 'application/json'}
-        print(f"Debug: RPC URL: {rpc_url}, Payload: {json.dumps(payload)}")  # Full payload log
-
-        response = requests.post(rpc_url, json=payload, headers=headers, timeout=5)
-        print(f"Debug: RPC Status: {response.status_code}, Text: {response.text[:200]}...")  # Response snippet
-
-        response.raise_for_status()
-        result = response.json()
-        print(f"Debug: Parsed JSON: {json.dumps(result, indent=2)[:300]}...")  # Full parse log
-
-        if "error" in result:
-            error_msg = result["error"].get("msg", "Unknown RPC error")
-            print(f"Debug: RPC Error: {error_msg}")
-            return f"Error: {error_msg}"
-        key = result["result"]["result"]
-        if not key:
-            return "Error: No key set"
-        print(f"Debug: Retrieved key: {key[:10]}...")
+        result = await near.view(  # py_near's async view; no signer/deposit
+            contract_id=contract_id,
+            method_name="get_group_key",
+            args={"group_id": group_id, "user_id": user_id}  # Dict auto-JSON
+        )
+        key = result.result  # Str (base64 key from contract)
+        if not key or len(base64.b64decode(key)) != 32:
+            raise Exception(f"Invalid/missing key for {group_id}/{user_id}")
+        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")  # Partial log
         return key
-    except requests.exceptions.Timeout:
-        print("Debug: RPC timeout")
-        return "Error: RPC timeout"
-    except json.JSONDecodeError as e:
-        print(f"Debug: JSON decode error: {str(e)}")
-        return f"Error: Invalid RPC response - {str(e)}"
     except Exception as e:
-        print(f"Debug: General error: {str(e)}")
-        return f"Error: {str(e)}"
+        if "Unauthorized" in str(e):  # Contract panic catch
+            raise Exception(f"Unauthorized for {group_id}/{user_id}")
+        raise Exception(f"Get failed: {str(e)}")
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = None) -> str:
