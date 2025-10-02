@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
+from py_near.rpc import RPC
 import asyncio
 import json
 
@@ -136,20 +137,19 @@ async def store_group_key(group_id: str, key: str) -> str:
 async def get_group_key(group_id: str, user_id: str) -> str:
     """Retrieves group key if authorized. Returns base64 key."""
     contract_id = os.environ["CONTRACT_ID"]
-    rpc = os.environ["RPC_URL"]
-    result = await Account.call_static(  # Static view (no signer needed)
-        contract_id=contract_id,
-        method_name="get_group_key",
-        args={"group_id": group_id, "user_id": user_id},
-        rpc_url=rpc
-    )
-    if "SuccessValue" in result.status:
-        key = result.status['SuccessValue']
-        print(f"Retrieved key for {group_id}/{user_id}")
+    rpc_url = os.environ["RPC_URL"]
+    try:
+        rpc = RPC(rpc_url)  # Direct RPC client, no key
+        args = {"group_id": group_id, "user_id": user_id}
+        result = await rpc.view_call(contract_id, "get_group_key", args)
+        key = result  # Direct str (base64 from contract)
+        if not key:
+            raise Exception("No key set or unauthorized")
+        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
         return key
-    raise Exception(f"Get failed: {result.status} (unauthorized?)")
-
-
+    except Exception as e:
+        print(f"Get key error: {str(e)}")  # Log for debug
+        raise Exception(f"Get failed: {str(e)}")
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = None) -> str:
