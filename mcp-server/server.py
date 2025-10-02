@@ -8,7 +8,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 import py_near
 from py_near.account import Account
-from py_near.client import Client
 import asyncio
 import json
 
@@ -138,20 +137,25 @@ async def get_group_key(group_id: str, user_id: str) -> str:
     """Retrieves symmetric key (base64, 32 bytes) for authorized user in group. Raises if unauthorized/no key."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
+    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy ok for view
     try:
-        near = Client(rpc)  # No signer needed for view
-        result = await near.view(
+        acc = Account(user_id, private_key, rpc)  # Use user_id as account
+        await acc.startup()  # Async init
+        result = await acc.view_function(
             contract_id=contract_id,
             method_name="get_group_key",
             args={"group_id": group_id, "user_id": user_id}
         )
-        key = result.result  # Str (base64 key from contract)
-        if not key or len(base64.b64decode(key)) != 32:
-            raise Exception(f"Invalid/missing key for {group_id}/{user_id}")
-        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")  # Partial log
+        key = result.result  # Str base64
+        if not key:
+            raise Exception(f"No key for {group_id}/{user_id}")
+        key_bytes = base64.b64decode(key)
+        if len(key_bytes) != 32:
+            raise Exception(f"Invalid key length: {len(key_bytes)}")
+        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
         return key
     except Exception as e:
-        if "Unauthorized" in str(e):  # Contract panic catch
+        if "Unauthorized" in str(e):
             raise Exception(f"Unauthorized for {group_id}/{user_id}")
         raise Exception(f"Get failed: {str(e)}")
 
