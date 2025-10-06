@@ -17,27 +17,27 @@ load_dotenv()
 
 mcp = FastMCP(name="nova-mcp")
 
-# Helper functions (non-tools, callable internally)
-def _get_group_key(group_id: str, user_id: str) -> str:
-    """Internal: Retrieves key (same logic as tool)."""
+# Helper functions (callable internally)
+async def _get_group_key(group_id: str, user_id: str) -> str:
+    """Internal: Retrieves key (async py_near calls)."""
     contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy for view
     try:
         acc = Account(user_id, private_key, rpc)
-        asyncio.run(acc.startup())  # Run async in sync context
-        result = asyncio.run(acc.view_function(
+        await acc.startup()  # Await directly (no asyncio.run)
+        result = await acc.view_function(
             contract_id=contract_id,
             method_name="get_group_key",
             args={"group_id": group_id, "user_id": user_id}
-        ))
+        )
         key = result.result  # Str base64
         if not key:
             raise Exception(f"No key for {group_id}/{user_id}")
         key_bytes = base64.b64decode(key)
         if len(key_bytes) != 32:
             raise Exception(f"Invalid key length: {len(key_bytes)}")
-        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
+        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")  # Debug
         return key
     except Exception as e:
         if "Unauthorized" in str(e):
@@ -71,7 +71,7 @@ def _ipfs_upload(encrypted_b64: str, filename: str) -> str:
     raise Exception(f"Upload failed: {response.text}")
 
 async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
-    """Internal: Records (same as tool)."""
+    """Internal: Records (async)."""
     contract_id = os.environ["CONTRACT_ID"]
     private_key = os.environ["NEAR_PRIVATE_KEY"]
     rpc = os.environ["RPC_URL"]
@@ -236,7 +236,7 @@ async def composite_upload(group_id: str, user_id: str, data: str, filename: str
     """Full upload: get_key → encrypt → IPFS pin → record tx. Args: b64 data. Returns {'cid': str, 'trans_id': str, 'file_hash': str}."""
     try:
         # Step 1: Fetch key (for user/group)
-        key = _get_group_key(group_id, user_id)
+        key = await _get_group_key(group_id, user_id)
         # Step 2: Encrypt data
         encrypted_b64 = _encrypt_data(data, key)
         # Step 3: Upload (direct)
@@ -245,6 +245,7 @@ async def composite_upload(group_id: str, user_id: str, data: str, filename: str
         file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
         # Step 5: Blockchain record (direct async awaits for onchain validation)
         trans_id = await _record_near_transaction(group_id, user_id, file_hash, cid)
+        print(f"Composite success: CID={cid}, Trans={trans_id}")
         return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
     except Exception as e:
         raise Exception(f"Composite upload failed: {str(e)}")
