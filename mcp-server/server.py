@@ -162,27 +162,21 @@ async def get_group_key(group_id: str, user_id: str) -> str:
 @mcp.tool
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
     """Full upload: get_key → encrypt → IPFS pin → record tx. Args: b64 data. Returns {'cid': str, 'trans_id': str, 'file_hash': str}."""
-    # Step 1: Fetch key (chains to get_group_key tool)
-    key_result = await mcp.call_tool("get_group_key", {"group_id": group_id, "user_id": user_id})
-    key = key_result["structuredContent"]["result"]  # Extract from tool response
-    # Step 2: Encrypt (chains to encrypt_data)
-    encrypt_result = await mcp.call_tool("encrypt_data", {"data": data, "key": key})
-    encrypted_b64 = encrypt_result["structuredContent"]["result"]
-    # Step 3: Upload (chains to ipfs_upload)
-    upload_result = await mcp.call_tool("ipfs_upload", {"data": encrypted_b64, "filename": filename})
-    cid = upload_result["structuredContent"]["result"]
-    # Step 4: Local hash (fast, no tool needed)
-    import hashlib
-    file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
-    # Step 5: Record (chains to record_near_transaction)
-    record_result = await mcp.call_tool("record_near_transaction", {
-        "group_id": group_id,
-        "user_id": user_id,
-        "file_hash": file_hash,
-        "ipfs_hash": cid
-    })
-    trans_id = record_result["structuredContent"]["result"]
-    return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
+    try:
+        # Step 1: Fetch key (direct async call to get_group_key function, not mcp.call_tool)
+        key = get_group_key(group_id, user_id)
+        # Step 2: Encrypt (direct)
+        encrypted_b64 = encrypt_data(data, key)
+        # Step 3: Upload (direct)
+        cid = ipfs_upload(encrypted_b64, filename)
+        # Step 4: Local hash
+        import hashlib
+        file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
+        # Step 5: Record (direct async)
+        trans_id = await record_near_transaction(group_id, user_id, file_hash, cid)  # Direct async
+        return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
+    except Exception as e:
+        raise Exception(f"Composite upload failed: {str(e)}")
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = "test_group") -> dict:
