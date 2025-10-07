@@ -11,21 +11,28 @@ from py_near.account import Account
 import asyncio
 import json
 import hashlib
+import re
 
 # Load .env variables
 load_dotenv()
 
 mcp = FastMCP(name="nova-mcp")
 
+def _validate_near_key(private_key: str) -> str:
+    """Light validation: base58, 64 chars (ed25519)."""
+    if not private_key or len(private_key) < 64 or not re.match(r'^[1-9A-HJ-NP-Za-km-z]{64,}$', private_key):
+        raise ValueError("Invalid NEAR private_key: Must be base58-encoded (64+ chars, no prefix).")
+    return private_key
+
 # Helper functions (callable internally)
-async def _get_group_key(group_id: str, user_id: str) -> str:
+async def _get_group_key(group_id: str, user_id: str, contract_id: str, private_key: str = None) -> str:
     """Internal: Retrieves key (async py_near calls)."""
-    contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
-    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy for view
+    private_key = private_key or os.environ.get("NEAR_PRIVATE_KEY", "")
+    private_key = _validate_near_key(private_key)
     try:
         acc = Account(user_id, private_key, rpc)
-        await acc.startup()  # Await directly (no asyncio.run)
+        await acc.startup()
         result = await acc.view_function(
             contract_id=contract_id,
             method_name="get_group_key",
@@ -41,26 +48,24 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
         return key
     except Exception as e:
         if "Unauthorized" in str(e):
-            raise Exception(f"Unauthorized for {group_id}/{user_id}")
+            raise Exception("Unauthorized access: Provide your group member account_id and private_key. Or request access from the group owner.")
         raise Exception(f"Get failed: {str(e)}")
     
-async def _group_contains_key(group_id: str) -> bool:
+async def _group_contains_key(group_id: str, contract_id: str) -> bool:
     """Internal: Check if group exists (view)."""
-    contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy
-    acc = Account("nova-sdk-2.testnet", private_key, rpc)  # Use default signer for view
+    acc = Account("dummy", private_key, rpc)  # Dummy for view
     await acc.startup()
     result = await acc.view_function(
         contract_id=contract_id,
-        method_name="group_contains_key",
+        method_name="groups_contains_key",
         args={"group_id": group_id}
     )
     return result.result
 
-async def _is_authorized(group_id: str, user_id: str) -> bool:
+async def _is_authorized(group_id: str, user_id: str, contract_id: str) -> bool:
     """Internal: Check authorization (view)."""
-    contract_id = os.environ["CONTRACT_ID"]
     rpc = os.environ["RPC_URL"]
     private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy
     acc = Account(user_id, private_key, rpc)
@@ -71,7 +76,6 @@ async def _is_authorized(group_id: str, user_id: str) -> bool:
         args={"group_id": group_id, "user_id": user_id}
     )
     return result.result
-
 
 def _encrypt_data(data: str, key: str) -> str:
     """Internal: Encrypts (same as tool)."""
@@ -99,13 +103,11 @@ def _ipfs_upload(encrypted_b64: str, filename: str) -> str:
         return response.json()["IpfsHash"]
     raise Exception(f"Upload failed: {response.text}")
 
-async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
+async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, contract_id: str, account_id: str, private_key: str) -> str:
     """Internal: Records (async)."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
     rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", user_id)
-    near = Account(signer, private_key, rpc)
+    private_key = _validate_near_key(private_key)
+    near = Account(account_id, private_key, rpc)
     result = await near.function_call(
         contract_id=contract_id,
         method_name="record_transaction",
@@ -114,9 +116,9 @@ async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, 
     )
     if "SuccessValue" in result.status:
         return result.status['SuccessValue']
-    raise Exception(f"Record failed: {result.status}")
+    raise Exception(f"Record failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
 
-# Tools for direct external use
+# Tools for direct external use (non-restricted)
 @mcp.tool
 def ipfs_upload(data: str, filename: str) -> str:
     """Uploads encrypted data to IPFS via Pinata and returns CID."""
@@ -190,14 +192,112 @@ def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
     decrypted = decrypted_padded[:-pad_len]
     return base64.b64encode(decrypted).decode('utf-8')
 
+# Tools for NOVA contract interaction (requires valid auth)
 @mcp.tool
-async def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str) -> str:
-    """Records file tx on NOVA contract, returns trans_id."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
+async def register_group(group_id: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Registers new group on NOVA contract (owner only). Provide account_id/private_key as owner if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
     rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", user_id)  # Use signer if set
-    near = Account(signer, private_key, rpc)
+    if await _group_contains_key(group_id, contract_id):
+        raise Exception(f"Group {group_id} exists")
+    near = Account(account_id, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="register_group",
+        args={"group_id": group_id},
+        amount=int("100000000000000000000000")  # 0.01 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Registered group: {group_id}")
+        return "Registered"
+    raise Exception(f"Register failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
+
+@mcp.tool
+async def add_group_member(group_id: str, member_id: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Adds member to group (owner only). Provide account_id/private_key as owner if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    rpc = os.environ["RPC_URL"]
+    if not await _groups_contains_key(group_id, contract_id):
+        raise Exception(f"Group {group_id} not found")
+    if await _is_authorized(group_id, member_id, contract_id):
+        raise Exception(f"User {member_id} already a member")
+    near = Account(account_id, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="add_group_member",
+        args={"group_id": group_id, "user_id": member_id},
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Added {member_id} to {group_id}")
+        return "Added"
+    raise Exception(f"Add failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
+
+@mcp.tool
+async def revoke_group_member(group_id: str, member_id: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Revokes member from group (owner only, rotates key). Provide account_id/private_key as owner if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    rpc = os.environ["RPC_URL"]
+    if not await _groups_contains_key(group_id, contract_id):
+        raise Exception(f"Group {group_id} not found")
+    if not await _is_authorized(group_id, member_id, contract_id):
+        raise Exception(f"User {member_id} not a member")
+    near = Account(account_id, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="revoke_group_member",
+        args={"group_id": group_id, "user_id": member_id},
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Revoked {member_id} from {group_id}, key rotated")
+        return "Revoked"
+    raise Exception(f"Revoke failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
+
+@mcp.tool
+async def store_group_key(group_id: str, key: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Stores symmetric key (base64, 32 bytes) for group on NOVA contract (owner only)."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    rpc = os.environ["RPC_URL"]
+    key_bytes = base64.b64decode(key)
+    if len(key_bytes) != 32:
+        raise Exception(f"Invalid key length: {len(key_bytes)} (must be 32 bytes)")
+    near = Account(account_id, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="store_group_key",
+        args={"group_id": group_id, "key": key},
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Key stored for {group_id}: {result.status['SuccessValue']}")
+        return "Stored"
+    raise Exception(f"Store failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
+
+@mcp.tool
+async def get_group_key(group_id: str, user_id: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Retrieves symmetric key (base64, 32 bytes) for authorized user in group. Provide account_id/private_key as member if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or user_id  # Use user_id as default account
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    return await _get_group_key(group_id, user_id, contract_id, private_key)
+
+@mcp.tool
+async def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Records file tx on NOVA contract (owner only), returns trans_id. Provide creds as owner if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    rpc = os.environ["RPC_URL"]
+    near = Account(account_id, private_key, rpc)
     result = await near.function_call(
         contract_id=contract_id,
         method_name="record_transaction",
@@ -208,76 +308,53 @@ async def record_near_transaction(group_id: str, user_id: str, file_hash: str, i
         trans_id = result.status['SuccessValue']  # Direct str/hex
         print(f"Recorded tx: {trans_id}")  # Log for debug
         return trans_id
-    raise Exception(f"Record failed: {result.status}")
+    raise Exception(f"Record failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
 
 @mcp.tool
-async def store_group_key(group_id: str, key: str) -> str:
-    """Stores symmetric key (base64, 32 bytes) for group on NOVA contract. Returns 'Stored'."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
-    rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner/signer
-    near = Account(signer, private_key, rpc)
-    # Validate key locally (32 bytes post-decode)
-    key_bytes = base64.b64decode(key)
-    if len(key_bytes) != 32:
-        raise Exception(f"Invalid key length: {len(key_bytes)} (must be 32 bytes)")
-    result = await near.function_call(
-        contract_id=contract_id,
-        method_name="store_group_key",
-        args={"group_id": group_id, "key": key},
-        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
-    )
-    if "SuccessValue" in result.status:
-        print(f"Key stored for {group_id}: {result.status['SuccessValue']}")
-        return "Stored"
-    raise Exception(f"Store failed: {result.status}")
-
-@mcp.tool
-async def get_group_key(group_id: str, user_id: str) -> str:
-    """Retrieves symmetric key (base64, 32 bytes) for authorized user in group. Raises if unauthorized/no key."""
-    contract_id = os.environ["CONTRACT_ID"]
-    rpc = os.environ["RPC_URL"]
-    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy ok for view
+async def composite_upload(group_id: str, user_id: str, data: str, filename: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> dict:
+    """Full upload: get_key → encrypt → IPFS pin → record tx (owner for record). Provide creds as owner/member."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
     try:
-        acc = Account(user_id, private_key, rpc)  # Use user_id as account
-        await acc.startup()  # Async init
-        result = await acc.view_function(
-            contract_id=contract_id,
-            method_name="get_group_key",
-            args={"group_id": group_id, "user_id": user_id}
-        )
-        key = result.result  # Str base64
-        if not key:
-            raise Exception(f"No key for {group_id}/{user_id}")
-        key_bytes = base64.b64decode(key)
-        if len(key_bytes) != 32:
-            raise Exception(f"Invalid key length: {len(key_bytes)}")
-        print(f"Retrieved key for {group_id}/{user_id}: {key[:10]}...")
-        return key
-    except Exception as e:
-        if "Unauthorized" in str(e):
-            raise Exception(f"Unauthorized for {group_id}/{user_id}")
-        raise Exception(f"Get failed: {str(e)}")
-    
-@mcp.tool
-async def composite_upload(group_id: str, user_id: str, data: str, filename: str) -> dict:
-    """Full upload: get_key → encrypt → IPFS pin → record tx. Args: b64 data. Returns {'cid': str, 'trans_id': str, 'file_hash': str}."""
-    try:
-        # Step 1: Fetch key (for user/group)
-        key = await _get_group_key(group_id, user_id)
+        # Step 1: Fetch key (member auth)
+        key = await _get_group_key(group_id, user_id, contract_id, private_key)
         # Step 2: Encrypt data
         encrypted_b64 = _encrypt_data(data, key)
         # Step 3: Upload (direct)
         cid = _ipfs_upload(encrypted_b64, filename)
         # Step 4: Local hash
         file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
-        # Step 5: Blockchain record (direct async awaits for onchain validation)
-        trans_id = await _record_near_transaction(group_id, user_id, file_hash, cid)
+        # Step 5: Blockchain record (owner auth)
+        trans_id = await _record_near_transaction(group_id, user_id, file_hash, cid, contract_id, account_id, private_key)
         print(f"Composite success: CID={cid}, Trans={trans_id}")
         return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
     except Exception as e:
         raise Exception(f"Composite upload failed: {str(e)}")
+
+@mcp.tool
+async def composite_retrieve(group_id: str, ipfs_hash: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> dict:
+    """Full retrieve: get_key (member) → fetch IPFS → decrypt. Returns {'decrypted_b64': str, 'file_hash': str (for verification)}."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    if not ipfs_hash.startswith('Qm'):
+        raise Exception(f"Invalid CID: {ipfs_hash}")
+    try:
+        # Step 1: Fetch key (member auth)
+        key = await _get_group_key(group_id, account_id, contract_id, private_key)
+        # Step 2: Fetch from IPFS
+        encrypted_b64 = ipfs_retrieve(ipfs_hash)
+        encrypted_data = base64.b64decode(encrypted_b64)
+        # Step 3: Decrypt
+        decrypted_b64 = decrypt_data(encrypted_b64, key)
+        # Step 4: Hash for verification (user-side compare to on-chain)
+        decrypted_data = base64.b64decode(decrypted_b64)
+        file_hash = hashlib.sha256(decrypted_data).hexdigest()
+        print(f"Composite retrieve success: {len(decrypted_data)} bytes, hash={file_hash}")
+        return {"decrypted_b64": decrypted_b64, "file_hash": file_hash}
+    except Exception as e:
+        raise Exception(f"Composite retrieve failed: {str(e)}")
 
 @mcp.tool
 async def auth_status(user_id: str, group_id: str = "test_group") -> dict:
@@ -309,76 +386,6 @@ async def auth_status(user_id: str, group_id: str = "test_group") -> dict:
         if "Unauthorized" in str(e):
             return {"authorized": False, "groups": [], "member_count": 0}
         raise Exception(f"Auth query failed: {str(e)}")
-    
-@mcp.tool
-async def register_group(group_id: str) -> str:
-    """Registers new group on NOVA contract (owner only). Returns 'Registered'."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
-    rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Assume owner
-    # Check if exists first
-    if await _group_contains_key(group_id):
-        raise Exception(f"Group {group_id} exists")
-    near = Account(signer, private_key, rpc)
-    result = await near.function_call(
-        contract_id=contract_id,
-        method_name="register_group",
-        args={"group_id": group_id},
-        amount=int("100000000000000000000000")  # 0.01 NEAR yocto
-    )
-    if "SuccessValue" in result.status:
-        print(f"Registered group: {group_id}")
-        return "Registered"
-    raise Exception(f"Register failed: {result.status}")
-
-@mcp.tool
-async def add_group_member(group_id: str, member_id: str) -> str:
-    """Adds member to group (owner only). Returns 'Added'."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
-    rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner
-    # Check group exists and member not already added (via is_authorized)
-    if not await _group_contains_key(group_id):
-        raise Exception(f"Group {group_id} not found")
-    if await _is_authorized(group_id, member_id):
-        raise Exception(f"User {member_id} already a member")
-    near = Account(signer, private_key, rpc)
-    result = await near.function_call(
-        contract_id=contract_id,
-        method_name="add_group_member",
-        args={"group_id": group_id, "user_id": member_id},
-        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
-    )
-    if "SuccessValue" in result.status:
-        print(f"Added {member_id} to {group_id}")
-        return "Added"
-    raise Exception(f"Add failed: {result.status}")
-
-@mcp.tool
-async def revoke_group_member(group_id: str, member_id: str) -> str:
-    """Revokes member from group (owner only, rotates key). Returns 'Revoked'."""
-    contract_id = os.environ["CONTRACT_ID"]
-    private_key = os.environ["NEAR_PRIVATE_KEY"]
-    rpc = os.environ["RPC_URL"]
-    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner
-    # Check group exists and member is authorized
-    if not await _group_contains_key(group_id):
-        raise Exception(f"Group {group_id} not found")
-    if not await _is_authorized(group_id, member_id):
-        raise Exception(f"User {member_id} not a member")
-    near = Account(signer, private_key, rpc)
-    result = await near.function_call(
-        contract_id=contract_id,
-        method_name="revoke_group_member",
-        args={"group_id": group_id, "user_id": member_id},
-        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
-    )
-    if "SuccessValue" in result.status:
-        print(f"Revoked {member_id} from {group_id}, key rotated")
-        return "Revoked"
-    raise Exception(f"Revoke failed: {result.status}")
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
