@@ -251,6 +251,7 @@ async def revoke_group_member(group_id: str, member_id: str, account_id: str = N
     if not await _is_authorized(group_id, member_id, contract_id):
         raise Exception(f"User {member_id} not a member")
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # Initialize account for async calls
     result = await near.function_call(
         contract_id=contract_id,
         method_name="revoke_group_member",
@@ -263,6 +264,7 @@ async def revoke_group_member(group_id: str, member_id: str, account_id: str = N
     raise Exception(f"Revoke failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
 
 @mcp.tool
+@mcp.tool
 async def store_group_key(group_id: str, key: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
     """Stores symmetric key (base64, 32 bytes) for group on NOVA contract (owner only)."""
     contract_id = contract_id or os.environ["CONTRACT_ID"]
@@ -273,6 +275,7 @@ async def store_group_key(group_id: str, key: str, account_id: str = None, priva
     if len(key_bytes) != 32:
         raise Exception(f"Invalid key length: {len(key_bytes)} (must be 32 bytes)")
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # Initialize account for async calls
     result = await near.function_call(
         contract_id=contract_id,
         method_name="store_group_key",
@@ -293,13 +296,12 @@ async def get_group_key(group_id: str, user_id: str, account_id: str = None, pri
     return await _get_group_key(group_id, user_id, contract_id, private_key)
 
 @mcp.tool
-async def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
-    """Records file tx on NOVA contract (owner only), returns trans_id. Provide creds as owner if not using default."""
-    contract_id = contract_id or os.environ["CONTRACT_ID"]
-    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
-    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, contract_id: str, account_id: str, private_key: str) -> str:
+    """Internal: Records (async)."""
     rpc = os.environ["RPC_URL"]
+    private_key = _validate_near_key(private_key)
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # Initialize account for async calls
     result = await near.function_call(
         contract_id=contract_id,
         method_name="record_transaction",
@@ -319,7 +321,7 @@ async def composite_upload(group_id: str, user_id: str, data: str, filename: str
     account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
     private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
     try:
-        # Step 1: Fetch key (member auth)
+        # Step 1: Fetch key (uses _get_group_key, which has startup)
         key = await _get_group_key(group_id, user_id, contract_id, private_key)
         # Step 2: Encrypt data
         encrypted_b64 = _encrypt_data(data, key)
@@ -327,7 +329,7 @@ async def composite_upload(group_id: str, user_id: str, data: str, filename: str
         cid = _ipfs_upload(encrypted_b64, filename)
         # Step 4: Local hash
         file_hash = hashlib.sha256(base64.b64decode(data)).hexdigest()
-        # Step 5: Blockchain record (owner auth)
+        # Step 5: Blockchain record (uses _record_near_transaction, which needs startup—ensure it's added there if not)
         trans_id = await _record_near_transaction(group_id, user_id, file_hash, cid, contract_id, account_id, private_key)
         print(f"Composite success: CID={cid}, Trans={trans_id}")
         return {"cid": cid, "trans_id": trans_id, "file_hash": file_hash}
