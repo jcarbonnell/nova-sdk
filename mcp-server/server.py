@@ -89,6 +89,19 @@ def _encrypt_data(data: str, key: str) -> str:
     encrypted = encryptor.update(padded) + encryptor.finalize()
     return base64.b64encode(iv + encrypted).decode('utf-8')
 
+def _decrypt_data(encrypted: str, key: str) -> str:
+    """Internal: Decrypts (same as tool)."""
+    encrypted_bytes = base64.b64decode(encrypted)
+    key_bytes = base64.b64decode(key)[:32]
+    iv = encrypted_bytes[:16]
+    ciphertext = encrypted_bytes[16:]
+    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_padded = decryptor.update(ciphertext) + decryptor.finalize()
+    pad_len = decrypted_padded[-1]
+    decrypted = decrypted_padded[:-pad_len]
+    return base64.b64encode(decrypted).decode('utf-8')
+
 def _ipfs_upload(encrypted_b64: str, filename: str) -> str:
     """Internal: Uploads (same as tool)."""
     encrypted_data = base64.b64decode(encrypted_b64)
@@ -102,6 +115,47 @@ def _ipfs_upload(encrypted_b64: str, filename: str) -> str:
     if response.status_code == 200:
         return response.json()["IpfsHash"]
     raise Exception(f"Upload failed: {response.text}")
+
+async def _ipfs_retrieve(cid: str) -> str:
+    """Internal: Retrieves data from IPFS via gateway (fallback to public)."""
+    # Try custom gateway first
+    gateway = os.environ.get("PINATA_GATEWAY", "").rstrip('/')
+    if not gateway:
+        gateway = "https://gateway.pinata.cloud/ipfs"
+    url = f"{gateway}/{cid.lstrip('/').strip()}"
+    if not cid.startswith('Qm'):
+        raise Exception(f"Invalid CID: {cid}")
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code == 200 and response.content:
+                return base64.b64encode(response.content).decode('utf-8')
+            elif response.status_code == 400:
+                raise Exception(f"Invalid path/CID: {response.text[:100]}")
+            elif response.status_code == 429:
+                wait = 10 * (2 ** attempt)
+                time.sleep(wait)
+                continue
+            else:
+                raise Exception(f"Failed {response.status_code}: {response.text[:100]}")
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            # Fallback to public gateway on final fail
+            if gateway != "https://gateway.pinata.cloud/ipfs":
+                print(f"Custom gateway failed, falling back to public: {e}")
+                gateway = "https://gateway.pinata.cloud/ipfs"
+                url = f"{gateway}/{cid.lstrip('/').strip()}"
+                response = requests.get(url, headers=headers, timeout=15)
+                if response.status_code == 200 and response.content:
+                    return base64.b64encode(response.content).decode('utf-8')
+            raise e
+    raise Exception(f"Failed after {max_retries} retries")
 
 async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, contract_id: str, account_id: str, private_key: str) -> str:
     """Internal: Records (async)."""
@@ -140,60 +194,17 @@ def ipfs_upload(data: str, filename: str) -> str:
 @mcp.tool
 def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes
     """Retrieves data from IPFS via Pinata gateway."""
-    gateway = os.environ.get("PINATA_GATEWAY", "https://gateway.pinata.cloud/ipfs").rstrip('/')
-    url = f"{gateway}/ipfs/{cid.lstrip('/').strip()}"
-    if not cid.startswith('Qm'):
-        raise Exception(f"Invalid CID: {cid}")
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            if response.status_code == 200 and response.content:
-                return base64.b64encode(response.content).decode('utf-8')
-            elif response.status_code == 400:
-                raise Exception(f"Invalid path/CID: {response.text[:100]}")
-            elif response.status_code == 429:
-                wait = 10 * (2 ** attempt)
-                time.sleep(wait)
-                continue
-            else:
-                raise Exception(f"Failed {response.status_code}: {response.text[:100]}")
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(5 * (attempt + 1))
-                continue
-            raise e
-    raise Exception(f"Failed after {max_retries} retries")
+    return asyncio.run(_ipfs_retrieve(cid))
 
 @mcp.tool
 def encrypt_data(data: str, key: str) -> str:  # Input b64 data/key; return b64 encrypted
     """Encrypts base64 data with AES-CBC key (32 bytes padded)."""
-    data_bytes = base64.b64decode(data)
-    key_bytes = base64.b64decode(key)[:32]
-    iv = os.urandom(16)
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    pad_len = 16 - (len(data_bytes) % 16)
-    padded = data_bytes + bytes([pad_len] * pad_len)
-    encrypted = encryptor.update(padded) + encryptor.finalize()
-    return base64.b64encode(iv + encrypted).decode('utf-8')
+    return _encrypt_data(data, key)
 
 @mcp.tool
 def decrypt_data(encrypted: str, key: str) -> str:  # b64 in/out
     """Decrypts base64 encrypted data with AES-CBC key."""
-    encrypted_bytes = base64.b64decode(encrypted)
-    key_bytes = base64.b64decode(key)[:32]
-    iv = encrypted_bytes[:16]
-    ciphertext = encrypted_bytes[16:]
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
-    decryptor = cipher.decryptor()
-    decrypted_padded = decryptor.update(ciphertext) + decryptor.finalize()
-    pad_len = decrypted_padded[-1]
-    decrypted = decrypted_padded[:-pad_len]
-    return base64.b64encode(decrypted).decode('utf-8')
+    return _decrypt_data(encrypted, key)
 
 # Tools for NOVA contract interaction (requires valid auth)
 @mcp.tool
@@ -338,11 +349,10 @@ async def composite_retrieve(group_id: str, ipfs_hash: str, account_id: str = No
     try:
         # Step 1: Fetch key (member auth)
         key = await _get_group_key(group_id, account_id, contract_id, private_key)
-        # Step 2: Fetch from IPFS
-        encrypted_b64 = ipfs_retrieve(ipfs_hash)
-        encrypted_data = base64.b64decode(encrypted_b64)
-        # Step 3: Decrypt
-        decrypted_b64 = decrypt_data(encrypted_b64, key)
+        # Step 2: Fetch from IPFS (use internal)
+        encrypted_b64 = await _ipfs_retrieve(ipfs_hash)
+        # Step 3: Decrypt (use internal)
+        decrypted_b64 = _decrypt_data(encrypted_b64, key)
         # Step 4: Hash for verification (user-side compare to on-chain)
         decrypted_data = base64.b64decode(decrypted_b64)
         file_hash = hashlib.sha256(decrypted_data).hexdigest()
