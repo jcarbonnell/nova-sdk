@@ -92,6 +92,8 @@ def _encrypt_data(data: str, key: str) -> str:
 def _decrypt_data(encrypted: str, key: str) -> str:
     """Internal: Decrypts (same as tool)."""
     encrypted_bytes = base64.b64decode(encrypted)
+    if len(encrypted_bytes) < 16:
+        raise ValueError(f"Invalid encrypted data length: {len(encrypted_bytes)} (must be >=16 for IV)")
     key_bytes = base64.b64decode(key)[:32]
     iv = encrypted_bytes[:16]
     ciphertext = encrypted_bytes[16:]
@@ -192,9 +194,9 @@ def ipfs_upload(data: str, filename: str) -> str:
     raise Exception(f"Upload failed: {response.text}")
 
 @mcp.tool
-def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes
+async def ipfs_retrieve(cid: str) -> str:  # Returns base64 bytes (now async)
     """Retrieves data from IPFS via Pinata gateway."""
-    return asyncio.run(_ipfs_retrieve(cid))
+    return await _ipfs_retrieve(cid)
 
 @mcp.tool
 def encrypt_data(data: str, key: str) -> str:  # Input b64 data/key; return b64 encrypted
