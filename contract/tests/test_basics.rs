@@ -34,7 +34,7 @@ async fn test_basics_on(contract_wasm: &[u8]) -> Result<(), Box<dyn std::error::
 
     // Verify group exists
     let group_exists: bool = contract
-        .view("groups_contains_key")
+        .view("group_contains_key")
         .args_json(json!({"group_id": "test_group"}))
         .await?
         .json()?;

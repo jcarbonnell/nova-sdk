@@ -58,14 +58,15 @@ impl Contract {
         assert_eq!(caller, self.owner, "Only owner can register");  // MVP: limit to owner, add agents later.
         let group = Group { owner: caller.clone(), group_key: None };
         self.groups.insert(group_id.clone(), group);
-        let members = StoreVec::new(b"m");
-        let mut members = self.group_members.get_mut(&group_id).expect("Group members not initialized");
-        members.push(caller.clone());  // Adds owner as a member
+        // Create new members vector for this group
+        let mut members = StoreVec::new(group_id.as_bytes());
+        // Add owner as a member
+        members.push(caller.clone());
         self.group_members.insert(group_id.clone(), members);
         log!("Group {} registered by {} (owner added as member)", group_id, caller);
     }
 
-    pub fn groups_contains_key(&self, group_id: String) -> bool {
+    pub fn group_contains_key(&self, group_id: String) -> bool {
         self.groups.contains_key(&group_id)
     }
 

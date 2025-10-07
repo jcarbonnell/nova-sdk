@@ -43,6 +43,35 @@ async def _get_group_key(group_id: str, user_id: str) -> str:
         if "Unauthorized" in str(e):
             raise Exception(f"Unauthorized for {group_id}/{user_id}")
         raise Exception(f"Get failed: {str(e)}")
+    
+async def _group_contains_key(group_id: str) -> bool:
+    """Internal: Check if group exists (view)."""
+    contract_id = os.environ["CONTRACT_ID"]
+    rpc = os.environ["RPC_URL"]
+    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy
+    acc = Account("nova-sdk-2.testnet", private_key, rpc)  # Use default signer for view
+    await acc.startup()
+    result = await acc.view_function(
+        contract_id=contract_id,
+        method_name="group_contains_key",
+        args={"group_id": group_id}
+    )
+    return result.result
+
+async def _is_authorized(group_id: str, user_id: str) -> bool:
+    """Internal: Check authorization (view)."""
+    contract_id = os.environ["CONTRACT_ID"]
+    rpc = os.environ["RPC_URL"]
+    private_key = os.environ.get("NEAR_PRIVATE_KEY", "")  # Dummy
+    acc = Account(user_id, private_key, rpc)
+    await acc.startup()
+    result = await acc.view_function(
+        contract_id=contract_id,
+        method_name="is_authorized",
+        args={"group_id": group_id, "user_id": user_id}
+    )
+    return result.result
+
 
 def _encrypt_data(data: str, key: str) -> str:
     """Internal: Encrypts (same as tool)."""
@@ -280,6 +309,76 @@ async def auth_status(user_id: str, group_id: str = "test_group") -> dict:
         if "Unauthorized" in str(e):
             return {"authorized": False, "groups": [], "member_count": 0}
         raise Exception(f"Auth query failed: {str(e)}")
+    
+@mcp.tool
+async def register_group(group_id: str) -> str:
+    """Registers new group on NOVA contract (owner only). Returns 'Registered'."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Assume owner
+    # Check if exists first
+    if await _group_contains_key(group_id):
+        raise Exception(f"Group {group_id} exists")
+    near = Account(signer, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="register_group",
+        args={"group_id": group_id},
+        amount=int("100000000000000000000000")  # 0.01 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Registered group: {group_id}")
+        return "Registered"
+    raise Exception(f"Register failed: {result.status}")
+
+@mcp.tool
+async def add_group_member(group_id: str, member_id: str) -> str:
+    """Adds member to group (owner only). Returns 'Added'."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner
+    # Check group exists and member not already added (via is_authorized)
+    if not await _group_contains_key(group_id):
+        raise Exception(f"Group {group_id} not found")
+    if await _is_authorized(group_id, member_id):
+        raise Exception(f"User {member_id} already a member")
+    near = Account(signer, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="add_group_member",
+        args={"group_id": group_id, "user_id": member_id},
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Added {member_id} to {group_id}")
+        return "Added"
+    raise Exception(f"Add failed: {result.status}")
+
+@mcp.tool
+async def revoke_group_member(group_id: str, member_id: str) -> str:
+    """Revokes member from group (owner only, rotates key). Returns 'Revoked'."""
+    contract_id = os.environ["CONTRACT_ID"]
+    private_key = os.environ["NEAR_PRIVATE_KEY"]
+    rpc = os.environ["RPC_URL"]
+    signer = os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")  # Owner
+    # Check group exists and member is authorized
+    if not await _group_contains_key(group_id):
+        raise Exception(f"Group {group_id} not found")
+    if not await _is_authorized(group_id, member_id):
+        raise Exception(f"User {member_id} not a member")
+    near = Account(signer, private_key, rpc)
+    result = await near.function_call(
+        contract_id=contract_id,
+        method_name="revoke_group_member",
+        args={"group_id": group_id, "user_id": member_id},
+        amount=int("500000000000000000000")  # 0.0005 NEAR yocto
+    )
+    if "SuccessValue" in result.status:
+        print(f"Revoked {member_id} from {group_id}, key rotated")
+        return "Revoked"
+    raise Exception(f"Revoke failed: {result.status}")
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="127.0.0.1", port=8000)
