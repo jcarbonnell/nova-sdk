@@ -108,14 +108,17 @@ async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, 
     rpc = os.environ["RPC_URL"]
     private_key = _validate_near_key(private_key)
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # Initialize account for async calls (added)
     result = await near.function_call(
         contract_id=contract_id,
         method_name="record_transaction",
         args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        amount=int("2000000000000000000000")  # 0.002 NEAR
+        amount=int("2000000000000000000000")  # 0.002 NEAR yocto
     )
     if "SuccessValue" in result.status:
-        return result.status['SuccessValue']
+        trans_id = result.status['SuccessValue']  # Direct str/hex
+        print(f"Recorded tx: {trans_id}")  # Log for debug (kept from failing)
+        return trans_id
     raise Exception(f"Record failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
 
 # Tools for direct external use (non-restricted)
@@ -264,7 +267,6 @@ async def revoke_group_member(group_id: str, member_id: str, account_id: str = N
     raise Exception(f"Revoke failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
 
 @mcp.tool
-@mcp.tool
 async def store_group_key(group_id: str, key: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
     """Stores symmetric key (base64, 32 bytes) for group on NOVA contract (owner only)."""
     contract_id = contract_id or os.environ["CONTRACT_ID"]
@@ -296,23 +298,12 @@ async def get_group_key(group_id: str, user_id: str, account_id: str = None, pri
     return await _get_group_key(group_id, user_id, contract_id, private_key)
 
 @mcp.tool
-async def _record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, contract_id: str, account_id: str, private_key: str) -> str:
-    """Internal: Records (async)."""
-    rpc = os.environ["RPC_URL"]
-    private_key = _validate_near_key(private_key)
-    near = Account(account_id, private_key, rpc)
-    await near.startup()  # Initialize account for async calls
-    result = await near.function_call(
-        contract_id=contract_id,
-        method_name="record_transaction",
-        args={"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash},
-        amount=int("2000000000000000000000")  # 0.002 NEAR yocto
-    )
-    if "SuccessValue" in result.status:
-        trans_id = result.status['SuccessValue']  # Direct str/hex
-        print(f"Recorded tx: {trans_id}")  # Log for debug
-        return trans_id
-    raise Exception(f"Record failed (check owner auth): {result.status}. Authentication required: Provide your account_id and private_key as the smart contract owner. Or deploy your own contract via `near deploy` and pass `contract_id`.")
+async def record_near_transaction(group_id: str, user_id: str, file_hash: str, ipfs_hash: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> str:
+    """Records file tx on NOVA contract (owner only), returns trans_id. Provide creds as owner if not using default."""
+    contract_id = contract_id or os.environ["CONTRACT_ID"]
+    account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
+    private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
+    return await _record_near_transaction(group_id, user_id, file_hash, ipfs_hash, contract_id, account_id, private_key)
 
 @mcp.tool
 async def composite_upload(group_id: str, user_id: str, data: str, filename: str, account_id: str = None, private_key: str = None, contract_id: str = None) -> dict:
