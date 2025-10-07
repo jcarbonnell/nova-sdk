@@ -59,7 +59,7 @@ async def _group_contains_key(group_id: str, contract_id: str) -> bool:
     await acc.startup()
     result = await acc.view_function(
         contract_id=contract_id,
-        method_name="groups_contains_key",
+        method_name="group_contains_key",
         args={"group_id": group_id}
     )
     return result.result
@@ -203,6 +203,7 @@ async def register_group(group_id: str, account_id: str = None, private_key: str
     if await _group_contains_key(group_id, contract_id):
         raise Exception(f"Group {group_id} exists")
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # ADD THIS: Initialize account
     result = await near.function_call(
         contract_id=contract_id,
         method_name="register_group",
@@ -221,11 +222,12 @@ async def add_group_member(group_id: str, member_id: str, account_id: str = None
     account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
     private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
     rpc = os.environ["RPC_URL"]
-    if not await _groups_contains_key(group_id, contract_id):
+    if not await _group_contains_key(group_id, contract_id):
         raise Exception(f"Group {group_id} not found")
     if await _is_authorized(group_id, member_id, contract_id):
         raise Exception(f"User {member_id} already a member")
     near = Account(account_id, private_key, rpc)
+    await near.startup()  # ADD THIS
     result = await near.function_call(
         contract_id=contract_id,
         method_name="add_group_member",
@@ -244,7 +246,7 @@ async def revoke_group_member(group_id: str, member_id: str, account_id: str = N
     account_id = account_id or os.environ.get("SIGNER_ACCOUNT_ID", "nova-sdk-2.testnet")
     private_key = _validate_near_key(private_key or os.environ.get("NEAR_PRIVATE_KEY", ""))
     rpc = os.environ["RPC_URL"]
-    if not await _groups_contains_key(group_id, contract_id):
+    if not await _group_contains_key(group_id, contract_id):
         raise Exception(f"Group {group_id} not found")
     if not await _is_authorized(group_id, member_id, contract_id):
         raise Exception(f"User {member_id} not a member")
