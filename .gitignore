@@ -13,16 +13,6 @@ nova-venv/
 contract/target
 contract/*.wasm
 
-# agents
-__pycache__/
-*.py[cod]
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.egg-info/
-*.egg
-
 # server
 mcp-server/.env
 
@@ -30,3 +20,6 @@ mcp-server/.env
 node_modules/
 npm-debug.log
 yarn-error.log
+
+# NOVA sdk RS
+nova-sdk-rs/Cargo.lock

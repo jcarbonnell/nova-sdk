@@ -1,0 +1,17 @@
+[package]
+name = "nova-sdk-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+near-jsonrpc-client = "0.18.0"
+near-primitives = "0.31.1"
+near-crypto = "0.31.1"
+near-jsonrpc-primitives = "0.31.1"
+thiserror = "2.0.17"
+base64 = "0.22"
+
+[dev-dependencies]
+tokio = { version = "1.47.1", features = ["full"] }
+dotenv = "0.15"
+ctor = "0.2"
