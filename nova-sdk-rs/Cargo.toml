@@ -5,7 +5,7 @@ edition = "2021"
 description = "Lightweight Rust SDK for NOVA: Secure group-based file sharing on NEAR Protocol with IPFS integration."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jcarbonnell/nova/tree/main/nova-sdk-rs"
-categories = ["cryptography", "blockchain"]
+categories = ["cryptography", "network-programming", "science"]
 keywords = ["near-protocol", "ipfs", "cryptography", "file-sharing", "access-control"]
 
 [dependencies]
