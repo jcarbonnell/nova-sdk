@@ -221,6 +221,82 @@ async fn test_get_group_key_nonexistent_group() {
 }
 
 #[tokio::test]
+async fn test_get_transactions_for_group() {
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret",
+    );
+    
+    // Test with likely unauthorized user → expect empty vec or error
+    let result = sdk.get_transactions_for_group("test_group", "random.user.testnet").await;
+    match result {
+        Ok(txs) => {
+            // Unauthorized might return empty vec
+            assert!(txs.is_empty(), "Unauthorized user should return empty transactions");
+        },
+        Err(e) => {
+            // Or contract might panic with auth error
+            assert!(matches!(e, NovaError::Near(_)), "Expect Near error for auth failure");
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_get_transactions_for_group_integration() {
+    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_get_transactions_for_group_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret",
+    );
+    
+    // Query transactions for authorized user
+    let result = sdk.get_transactions_for_group("test_group", &account_id).await;
+    
+    match result {
+        Ok(txs) => {
+            println!("✅ Retrieved {} transactions for test_group", txs.len());
+            
+            // If there are transactions, validate structure
+            if !txs.is_empty() {
+                let first_tx = &txs[0];
+                assert!(!first_tx.group_id.is_empty(), "Transaction should have group_id");
+                assert!(!first_tx.user_id.is_empty(), "Transaction should have user_id");
+                assert!(!first_tx.file_hash.is_empty(), "Transaction should have file_hash");
+                assert!(!first_tx.ipfs_hash.is_empty(), "Transaction should have ipfs_hash");
+                assert_eq!(first_tx.file_hash.len(), 64, "File hash should be 64 chars (SHA-256 hex)");
+                
+                println!("   First transaction:");
+                println!("     Group: {}", first_tx.group_id);
+                println!("     User: {}", first_tx.user_id);
+                println!("     File Hash: {}", first_tx.file_hash);
+                println!("     IPFS Hash: {}", first_tx.ipfs_hash);
+            } else {
+                println!("   No transactions found (this is OK if group is new)");
+            }
+        }
+        Err(e) => {
+            // If unauthorized, that's expected for some test scenarios
+            if e.to_string().contains("not authorized") || e.to_string().contains("Unauthorized") {
+                println!("⚠️  User not authorized to view transactions (expected if not a member)");
+            } else {
+                panic!("Unexpected error: {}", e);
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_revoke_group_member_integration() {
     let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
         Ok(key) => key,

@@ -26,7 +26,15 @@ pub enum NovaError {
     Signing(String),
 }
 
-// Result structs for composites - MOVED OUTSIDE impl block
+#[derive(serde::Deserialize, Debug)]
+pub struct Transaction {
+    pub group_id: String,
+    pub user_id: String,
+    pub file_hash: String,
+    pub ipfs_hash: String,
+}
+
+// Result structs for composites
 #[derive(Debug)]
 pub struct CompositeUploadResult {
     pub cid: String,
@@ -125,6 +133,28 @@ impl NovaSdk {  // REMOVED generic type parameter
             JsonRpcQueryResponseKind::CallResult(result) => {
                 let key_str = String::from_utf8(result.result).map_err(|e| NovaError::Near(e.to_string()))?;
                 Ok(key_str)
+            }
+            _ => Err(NovaError::Near("Invalid response kind".to_string())),
+        }
+    }
+
+    // Fetches transactions for a group (authorized user view).
+    pub async fn get_transactions_for_group(&self, group_id: &str, user_id: &str) -> Result<Vec<Transaction>, NovaError> {
+        let args = json!({"group_id": group_id, "user_id": user_id}).to_string().into_bytes();
+        let request = methods::query::RpcQueryRequest {
+            block_reference: BlockReference::Finality(Finality::Final),
+            request: QueryRequest::CallFunction {
+                account_id: self.contract_id.clone(),
+                method_name: "get_transactions_for_group".to_string(),
+                args: args.into(),
+            },
+        };
+        let response = self.client.call(request).await.map_err(|e| NovaError::Near(e.to_string()))?;
+        match response.kind {
+            JsonRpcQueryResponseKind::CallResult(result) => {
+                let txs: Vec<Transaction> = serde_json::from_slice(&result.result)
+                    .map_err(|e| NovaError::Near(format!("Failed to parse transactions: {}", e)))?;
+                Ok(txs)
             }
             _ => Err(NovaError::Near("Invalid response kind".to_string())),
         }
@@ -320,9 +350,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // ========== SECTION 4: COMPOSITES ==========
-
-    /// Full upload workflow: get_key → encrypt → IPFS pin → record tx.
+    // Full upload workflow: get_key → encrypt → IPFS pin → record tx.
     pub async fn composite_upload(
         &self,
         group_id: &str,
@@ -353,7 +381,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         })
     }
 
-    /// Full retrieve workflow: get_key → fetch IPFS → decrypt.
+    // Full retrieve workflow: get_key → fetch IPFS → decrypt.
     pub async fn composite_retrieve(
         &self,
         group_id: &str,
@@ -613,6 +641,44 @@ mod tests {
         let key = sdk.get_group_key("test_group", &account_id.unwrap()).await.unwrap();
         assert!(!key.is_empty(), "Key should be non-empty base64");
         assert!(key.len() > 20, "Base64 key should be reasonable length");
+    }
+
+    #[tokio::test]
+    async fn test_get_transactions_for_group() {
+        let sdk = NovaSdk::new(
+            "https://rpc.testnet.near.org",
+            "nova-sdk-2.testnet",
+            "fake_key",
+            "fake_secret",
+        );
+        // Test with likely empty/unauth → expect empty vec or err
+        let result = sdk.get_transactions_for_group("test_group", "random.user.testnet").await;
+        match result {
+            Ok(txs) => assert!(txs.is_empty(), "Unauthorized should return empty vec"),
+            Err(e) => assert!(matches!(e, NovaError::Near(_)), "Expect Near err for auth fail"),
+        }
+    }
+
+    // Integration (env-guarded)
+    #[tokio::test]
+    async fn test_get_transactions_for_group_integration() {
+        let account_id = std::env::var("TEST_NEAR_ACCOUNT_ID").ok();
+        if account_id.is_none() {
+            println!("Skipping: TEST_NEAR_ACCOUNT_ID not set");
+            return;
+        }
+        let sdk = NovaSdk::new(
+            "https://rpc.testnet.near.org",
+            "nova-sdk-2.testnet",
+            "fake_key",
+            "fake_secret",
+        );
+        let txs = sdk.get_transactions_for_group("test_group", &account_id.unwrap()).await.unwrap();
+        // If group has txs, expect non-empty; else empty is fine
+        println!("Retrieved {} transactions for group", txs.len());
+        if !txs.is_empty() {
+            assert!(!txs[0].ipfs_hash.is_empty(), "First tx should have valid IPFS hash");
+        }
     }
 
     #[tokio::test]
