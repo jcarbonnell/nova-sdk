@@ -1,8 +1,0 @@
-/Users/juliencarbonnell/near/nova-sdk/nova-sdk-rs/target/debug/deps/fastrand-ec4e6f7d55cbc5f2.d: /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/lib.rs /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/global_rng.rs
-
-/Users/juliencarbonnell/near/nova-sdk/nova-sdk-rs/target/debug/deps/libfastrand-ec4e6f7d55cbc5f2.rlib: /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/lib.rs /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/global_rng.rs
-
-/Users/juliencarbonnell/near/nova-sdk/nova-sdk-rs/target/debug/deps/libfastrand-ec4e6f7d55cbc5f2.rmeta: /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/lib.rs /Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/global_rng.rs
-
-/Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/lib.rs:
-/Users/juliencarbonnell/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.3.0/src/global_rng.rs:
