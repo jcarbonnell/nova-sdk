@@ -13,6 +13,7 @@ use std::str::FromStr;
 use serde_json::json;
 use base64::Engine;
 use base64::engine::general_purpose;
+use tokio::time::{sleep, Duration};
 
 #[derive(Error, Debug)]
 pub enum NovaError {
@@ -516,18 +517,39 @@ impl NovaSdk {  // REMOVED generic type parameter
     }
 
     // Helper: Retrieve from IPFS via Pinata gateway
-    async fn ipfs_retrieve(&self, cid: &str) -> Result<String, NovaError> {
-        let client = reqwest::Client::new();
+    async fn _inner_retrieve(&self, cid: &str, client: &reqwest::Client) -> Result<String, NovaError> {
         let url = format!("https://gateway.pinata.cloud/ipfs/{}", cid);
-        
         let response = client.get(&url)
             .send()
             .await
             .map_err(|e| NovaError::Near(format!("IPFS retrieve failed: {}", e)))?;
-        
         let bytes = response.bytes().await
             .map_err(|e| NovaError::Near(format!("IPFS read failed: {}", e)))?;
-        
+        Ok(general_purpose::STANDARD.encode(bytes))
+    }
+
+    async fn ipfs_retrieve(&self, cid: &str) -> Result<String, NovaError> {
+        let client = reqwest::Client::new();
+        let mut retries = 0;
+        while retries < 3 {
+            match self._inner_retrieve(cid, &client).await {
+                Ok(res) => return Ok(res),
+                Err(e) if e.to_string().contains("timeout") => {
+                    retries += 1;
+                    sleep(Duration::from_secs(2u64.pow((retries as u64).try_into().unwrap()))).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    
+        // Fallback to public gateway after retries
+        let public_url = format!("https://ipfs.io/ipfs/{}", cid);
+        let response = client.get(&public_url)
+            .send()
+            .await
+            .map_err(|e| NovaError::Near(format!("Public IPFS fallback failed: {}", e)))?;
+        let bytes = response.bytes().await
+            .map_err(|e| NovaError::Near(format!("Public IPFS read failed: {}", e)))?;
         Ok(general_purpose::STANDARD.encode(bytes))
     }
 }
