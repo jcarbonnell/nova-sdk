@@ -35,7 +35,7 @@ pub struct Transaction {
     pub ipfs_hash: String,
 }
 
-// Result structs for composites
+/// Result structs for composites
 #[derive(Debug)]
 pub struct CompositeUploadResult {
     pub cid: String,
@@ -59,7 +59,7 @@ pub struct NovaSdk {
 }
 
 impl NovaSdk {  // REMOVED generic type parameter
-    // Creates a new NovaSdk instance.
+    /// Creates a new NovaSdk instance.
     pub fn new(rpc_url: &str, contract_id: &str, pinata_key: &str, pinata_secret: &str) -> Self {
         let client = JsonRpcClient::connect(rpc_url);
         let contract_id = AccountId::from_str(contract_id).expect("Invalid contract_id format");
@@ -72,7 +72,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Attaches a signer using a NEAR private key string (e.g., "ed25519:base58key").
+    /// Attaches a signer using a NEAR private key string (e.g., "ed25519:base58key").
     pub fn with_signer(mut self, private_key: &str, account_id: &str) -> Result<Self, NovaError> {
         // Validate account_id first
         let account_id_acc = AccountId::from_str(account_id).map_err(|_| NovaError::ParseAccount)?;
@@ -83,7 +83,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         Ok(self)
     }
 
-    // Queries the balance of an account on NEAR.
+    /// Queries the balance of an account on NEAR.
     pub async fn get_balance(&self, account_id: &str) -> Result<Balance, NovaError> {
         let account_id_acc = AccountId::from_str(account_id).map_err(|_| NovaError::ParseAccount)?;
         let request = methods::query::RpcQueryRequest {
@@ -97,7 +97,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Checks if a user is authorized in a group (read-only contract view).
+    /// Checks if a user is authorized in a group (read-only contract view).
     pub async fn is_authorized(&self, group_id: &str, user_id: &str) -> Result<bool, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id.to_string()}).to_string().into_bytes();
         let request = methods::query::RpcQueryRequest {
@@ -118,7 +118,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Fetches the base64-encoded group key for an authorized user (read-only contract view).
+    /// Fetches the base64-encoded group key for an authorized user (read-only contract view).
     pub async fn get_group_key(&self, group_id: &str, user_id: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id.to_string()}).to_string().into_bytes();
         let request = methods::query::RpcQueryRequest {
@@ -139,7 +139,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Fetches transactions for a group (authorized user view).
+    /// Fetches transactions for a group (authorized user view).
     pub async fn get_transactions_for_group(&self, group_id: &str, user_id: &str) -> Result<Vec<Transaction>, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id}).to_string().into_bytes();
         let request = methods::query::RpcQueryRequest {
@@ -161,7 +161,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Executes a signed function call on the contract.
+    /// Executes a signed function call on the contract.
     async fn execute_contract_call(
         &self,
         method_name: &str,
@@ -229,35 +229,35 @@ impl NovaSdk {  // REMOVED generic type parameter
         Ok(broadcast_response)
     }
 
-    // Registers a new group (owner-only, payable).
+    /// Registers a new group (owner-only, payable).
     pub async fn register_group(&self, group_id: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id}).to_string().into_bytes();
         let outcome = self.execute_contract_call("register_group", args, 300_000_000_000_000, 100_000_000_000_000_000_000_000).await?;
         self.parse_outcome(&outcome.transaction_outcome.outcome)
     }
 
-    // Adds a member to a group (owner-only, payable).
+    /// Adds a member to a group (owner-only, payable).
     pub async fn add_group_member(&self, group_id: &str, user_id: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id}).to_string().into_bytes();
         let outcome = self.execute_contract_call("add_group_member", args, 300_000_000_000_000, 500_000_000_000_000_000).await?;
         self.parse_outcome(&outcome.transaction_outcome.outcome)
     }
 
-    // Revokes a member from a group (owner-only, payable, rotates key).
+    /// Revokes a member from a group (owner-only, payable, rotates key).
     pub async fn revoke_group_member(&self, group_id: &str, user_id: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id}).to_string().into_bytes();
         let outcome = self.execute_contract_call("revoke_group_member", args, 300_000_000_000_000, 500_000_000_000_000_000).await?;
         self.parse_outcome(&outcome.transaction_outcome.outcome)
     }
 
-    // Stores a base64 group key (owner-only, payable).
+    /// Stores a base64 group key (owner-only, payable).
     pub async fn store_group_key(&self, group_id: &str, key_b64: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id, "key": key_b64}).to_string().into_bytes();
         let outcome = self.execute_contract_call("store_group_key", args, 300_000_000_000_000, 500_000_000_000_000_000).await?;
         self.parse_outcome(&outcome.transaction_outcome.outcome)
     }
 
-    // Records a file transaction (owner-only, payable, returns trans_id).
+    /// Records a file transaction (owner-only, payable, returns trans_id).
     pub async fn record_transaction(&self, group_id: &str, user_id: &str, file_hash: &str, ipfs_hash: &str) -> Result<String, NovaError> {
         let args = json!({"group_id": group_id, "user_id": user_id, "file_hash": file_hash, "ipfs_hash": ipfs_hash}).to_string().into_bytes();
         let outcome = self.execute_contract_call("record_transaction", args, 300_000_000_000_000, 2_000_000_000_000_000_000).await?;
@@ -267,7 +267,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Transfers tokens to another account (signed transfer action).
+    /// Transfers tokens to another account (signed transfer action).
     pub async fn transfer_tokens(&self, to_account: &str, amount_yocto: u128) -> Result<String, NovaError> {
         let to_id = AccountId::from_str(to_account).map_err(|_| NovaError::ParseAccount)?;
         let actions = vec![Action::Transfer(TransferAction { deposit: amount_yocto })];
@@ -351,7 +351,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         }
     }
 
-    // Full upload workflow: get_key → encrypt → IPFS pin → record tx.
+    /// Full upload workflow: get_key → encrypt → IPFS pin → record tx.
     pub async fn composite_upload(
         &self,
         group_id: &str,
@@ -381,7 +381,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         })
     }
 
-    // Full retrieve workflow: get_key → fetch IPFS → decrypt.
+    /// Full retrieve workflow: get_key → fetch IPFS → decrypt.
     pub async fn composite_retrieve(
         &self,
         group_id: &str,
@@ -419,7 +419,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         })
     }
 
-    // Helper: Encrypt data with AES-256-CBC
+    /// Helper: Encrypt data with AES-256-CBC
     fn encrypt_data(&self, data: &[u8], key_b64: &str) -> Result<String, NovaError> {
         use aes::Aes256;
         use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
@@ -454,7 +454,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         Ok(general_purpose::STANDARD.encode(result))
     }
 
-    // Helper: Decrypt data with AES-256-CBC
+    /// Helper: Decrypt data with AES-256-CBC
     fn decrypt_data(&self, encrypted_b64: &str, key_b64: &str) -> Result<String, NovaError> {
         use aes::Aes256;
         use cbc::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
@@ -486,7 +486,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         Ok(general_purpose::STANDARD.encode(decrypted))
     }
 
-    // Helper: Upload to IPFS via Pinata
+    /// Helper: Upload to IPFS via Pinata
     async fn ipfs_upload(&self, data_b64: &str, filename: &str) -> Result<String, NovaError> {
         use reqwest::multipart;
         
@@ -516,7 +516,7 @@ impl NovaSdk {  // REMOVED generic type parameter
             .ok_or(NovaError::Near("No IpfsHash in response".to_string()))
     }
 
-    // Helper: Retrieve from IPFS via Pinata gateway
+    /// Helper: Retrieve from IPFS via Pinata gateway
     async fn _inner_retrieve(&self, cid: &str, client: &reqwest::Client) -> Result<String, NovaError> {
         let url = format!("https://gateway.pinata.cloud/ipfs/{}", cid);
         let response = client.get(&url)
@@ -554,7 +554,7 @@ impl NovaSdk {  // REMOVED generic type parameter
     }
 }
 
-// Helper function for SHA-256 hashing
+/// Helper function for SHA-256 hashing
 fn sha256_hash(data: &[u8]) -> [u8; 32] {
     use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
@@ -562,7 +562,7 @@ fn sha256_hash(data: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-// Helper function to convert byte array to hex string
+/// Helper function to convert byte array to hex string
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }

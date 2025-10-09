@@ -2,6 +2,11 @@
 name = "nova-sdk-rs"
 version = "0.1.0"
 edition = "2021"
+description = "Lightweight Rust SDK for NOVA: Secure group-based file sharing on NEAR Protocol with IPFS integration."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jcarbonnell/nova/tree/main/nova-sdk-rs"
+categories = ["cryptography::ciphers", "api-bindings"]
+keywords = ["near", "ipfs", "encryption", "file-sharing"]
 
 [dependencies]
 near-jsonrpc-client = "0.18.0"
