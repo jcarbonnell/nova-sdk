@@ -1,4 +1,4 @@
-# NOVA-SDK
+# NOVA secure file-sharing
 
 NOVA is a privacy-first, decentralized file-sharing primitive for NEAR dApps, empowering user-owned AI at scale. NOVA enables secure storage and sharing of sensitive data (e.g., datasets for AI agent fine-tuning) without centralized intermediaries, leveraging group key management, IPFS, and NEAR smart contracts.
 
