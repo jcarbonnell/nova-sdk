@@ -416,98 +416,67 @@ async fn test_record_transaction_integration() {
 
 #[tokio::test]
 async fn test_composite_upload_integration() {
-    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            println!("Skipping test_composite_upload_integration: Credentials not set");
-            return;
-        }
-    };
+    let private_key = std::env::var("TEST_NEAR_PRIVATE_KEY").ok();
+    let account_id = std::env::var("TEST_NEAR_ACCOUNT_ID").ok();
+    if private_key.is_none() || account_id.is_none() {
+        println!("Skipping test_composite_upload_integration: Credentials not set");
+        return;
+    }
     
-    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
-        Ok(id) => id,
-        Err(_) => {
-            println!("Skipping test_composite_upload_integration: Credentials not set");
-            return;
-        }
-    };
+    let pinata_key = std::env::var("PINATA_API_KEY").unwrap_or_else(|_| {
+        println!("Skipping: PINATA_API_KEY not set");
+        std::process::exit(0);  // Or just return early
+    });
     
-    let pinata_key = match std::env::var("PINATA_API_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            println!("Skipping test_composite_upload_integration: PINATA_API_KEY not set");
-            return;
-        }
-    };
-    
-    let pinata_secret = match std::env::var("PINATA_SECRET_KEY") {
-        Ok(secret) => secret,
-        Err(_) => {
-            println!("Skipping test_composite_upload_integration: PINATA_SECRET_KEY not set");
-            return;
-        }
-    };
+    let pinata_secret = std::env::var("PINATA_SECRET_KEY").unwrap_or_else(|_| {
+        println!("Skipping: PINATA_SECRET_KEY not set");
+        std::process::exit(0);
+    });
     
     let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", &pinata_key, &pinata_secret)
-        .with_signer(&private_key, &account_id).unwrap();
+        .with_signer(&private_key.unwrap(), &account_id.clone().unwrap()).unwrap();
     
-    let test_data = "Test data for composite upload";
-    let result = sdk.composite_upload("test_group", &account_id, test_data, "test.txt").await;
+    // Fixed: Use byte slice for binary data
+    let test_data = b"Test data for composite upload";
+    let result = sdk.composite_upload("test_group", &account_id.unwrap(), test_data, "test.txt").await.unwrap();
     
-    match result {
-        Ok(res) => {
-            println!("✅ Composite upload success:");
-            println!("   CID: {}", res.cid);
-            println!("   Trans ID: {}", res.trans_id);
-            println!("   File Hash: {}", res.file_hash);
-            assert!(!res.cid.is_empty());
-            assert!(!res.trans_id.is_empty());
-            assert_eq!(res.file_hash.len(), 64); // SHA-256 hex
-        }
-        Err(e) => panic!("Composite upload failed: {}", e),
-    }
+    println!("✅ Composite upload success:");
+    println!("   CID: {}", result.cid);
+    println!("   Trans ID: {}", result.trans_id);
+    println!("   File Hash: {}", result.file_hash);
+    
+    assert!(!result.cid.is_empty());
+    assert!(!result.trans_id.is_empty());
+    assert_eq!(result.file_hash.len(), 64);  // SHA-256 hex
 }
 
 #[tokio::test]
 async fn test_composite_retrieve_integration() {
-    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            println!("Skipping test_composite_retrieve_integration: Credentials not set");
-            return;
-        }
-    };
+    let private_key = std::env::var("TEST_NEAR_PRIVATE_KEY").ok();
+    let account_id = std::env::var("TEST_NEAR_ACCOUNT_ID").ok();
+    if private_key.is_none() || account_id.is_none() {
+        println!("Skipping test_composite_retrieve_integration: Credentials not set");
+        return;
+    }
     
-    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
-        Ok(id) => id,
-        Err(_) => {
-            println!("Skipping test_composite_retrieve_integration: Credentials not set");
-            return;
-        }
-    };
+    let pinata_key = std::env::var("PINATA_API_KEY").unwrap_or_else(|_| {
+        println!("Skipping: PINATA_API_KEY not set");
+        std::process::exit(0);
+    });
     
-    let pinata_key = match std::env::var("PINATA_API_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            println!("Skipping test_composite_retrieve_integration: PINATA_API_KEY not set");
-            return;
-        }
-    };
-    
-    let pinata_secret = match std::env::var("PINATA_SECRET_KEY") {
-        Ok(secret) => secret,
-        Err(_) => {
-            println!("Skipping test_composite_retrieve_integration: PINATA_SECRET_KEY not set");
-            return;
-        }
-    };
+    let pinata_secret = std::env::var("PINATA_SECRET_KEY").unwrap_or_else(|_| {
+        println!("Skipping: PINATA_SECRET_KEY not set");
+        std::process::exit(0);
+    });
     
     let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", &pinata_key, &pinata_secret)
-        .with_signer(&private_key, &account_id).unwrap();
+        .with_signer(&private_key.unwrap(), &account_id.clone().unwrap()).unwrap();
     
-    // First, upload test data to get a valid CID
-    let test_data = "Test data for composite retrieve";
-    let upload_result = sdk.composite_upload("test_group", &account_id, test_data, "retrieve_test.txt").await;
+    // Fixed: Use byte slice for binary data
+    let original_bytes = b"Test data for composite retrieve";
+    
+    // Upload to get real CID
+    let upload_result = sdk.composite_upload("test_group", &account_id.unwrap(), original_bytes, "retrieve_test.txt").await;
     
     let cid = match upload_result {
         Ok(res) => {
@@ -519,22 +488,21 @@ async fn test_composite_retrieve_integration() {
         }
     };
     
-    // Now test retrieve
+    // Retrieve
     let retrieve_result = sdk.composite_retrieve("test_group", &cid).await;
     
     match retrieve_result {
         Ok(res) => {
             println!("✅ Composite retrieve success:");
             println!("   File Hash: {}", res.file_hash);
-            println!("   Decrypted data length: {} bytes", res.decrypted_b64.len());
+            // Fixed: Use .data.len() (bytes)
+            println!("   Decrypted data length: {} bytes", res.data.len());
             
-            // Verify decrypted data matches original
-            let decrypted_bytes = general_purpose::STANDARD.decode(&res.decrypted_b64).unwrap();
-            let decrypted_text = String::from_utf8(decrypted_bytes).unwrap();
-            assert_eq!(decrypted_text, test_data, "Decrypted data should match original");
+            // Fixed: Direct compare to bytes (no decode)
+            assert_eq!(res.data, original_bytes, "Decrypted data should match original");
             assert_eq!(res.file_hash.len(), 64, "File hash should be 64 chars (SHA-256 hex)");
             
-            println!("✅ Decrypted text matches original: '{}'", decrypted_text);
+            println!("✅ Decrypted data matches original ({} bytes)", res.data.len());
         }
         Err(e) => panic!("Composite retrieve failed: {}", e),
     }

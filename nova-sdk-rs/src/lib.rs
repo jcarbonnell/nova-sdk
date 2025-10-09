@@ -44,7 +44,7 @@ pub struct CompositeUploadResult {
 
 #[derive(Debug)]
 pub struct CompositeRetrieveResult {
-    pub decrypted_b64: String,
+    pub data: Vec<u8>,
     pub file_hash: String,
 }
 
@@ -355,7 +355,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         &self,
         group_id: &str,
         user_id: &str,
-        data: &str,
+        data: &[u8],
         filename: &str,
     ) -> Result<CompositeUploadResult, NovaError> {
         // Step 1: Fetch group key
@@ -368,8 +368,7 @@ impl NovaSdk {  // REMOVED generic type parameter
         let cid = self.ipfs_upload(&encrypted_b64, filename).await?;
         
         // Step 4: Calculate file hash from original data
-        let data_bytes = data.as_bytes();
-        let file_hash = hex_encode(&sha256_hash(data_bytes));
+        let file_hash = hex_encode(&sha256_hash(data));
         
         // Step 5: Record transaction on blockchain
         let trans_id = self.record_transaction(group_id, user_id, &file_hash, &cid).await?;
@@ -414,13 +413,13 @@ impl NovaSdk {  // REMOVED generic type parameter
         let file_hash = hex_encode(&sha256_hash(&decrypted_bytes));
         
         Ok(CompositeRetrieveResult {
-            decrypted_b64,
+            data: decrypted_bytes,
             file_hash,
         })
     }
 
     // Helper: Encrypt data with AES-256-CBC
-    fn encrypt_data(&self, data: &str, key_b64: &str) -> Result<String, NovaError> {
+    fn encrypt_data(&self, data: &[u8], key_b64: &str) -> Result<String, NovaError> {
         use aes::Aes256;
         use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
         
@@ -439,13 +438,12 @@ impl NovaSdk {  // REMOVED generic type parameter
         rand::thread_rng().fill_bytes(&mut iv);
         
         // Prepare buffer with room for padding
-        let data_bytes = data.as_bytes();
-        let mut buffer = vec![0u8; data_bytes.len() + 16]; // Extra space for padding
-        buffer[..data_bytes.len()].copy_from_slice(data_bytes);
-        
+        let mut buffer = vec![0u8; data.len() + 16];
+        buffer[..data.len()].copy_from_slice(data);
+
         // Encrypt with padding
         let cipher = Aes256CbcEnc::new(key_bytes.as_slice().into(), &iv.into());
-        let ciphertext = cipher.encrypt_padded_mut::<Pkcs7>(&mut buffer, data_bytes.len())
+        let ciphertext = cipher.encrypt_padded_mut::<Pkcs7>(&mut buffer, data.len())
             .map_err(|_| NovaError::Near("Encryption failed".to_string()))?;
         
         // Prepend IV to ciphertext
@@ -854,27 +852,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_encrypt_decrypt_data() {
+    async fn test_encrypt_decrypt_binary() {
         let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake");
     
         // Generate test key
         let mut key_bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut key_bytes);  // Change try_fill_bytes to fill_bytes
+        rand::thread_rng().fill_bytes(&mut key_bytes);
         let key_b64 = general_purpose::STANDARD.encode(key_bytes);
     
-        let original_data = "Hello, NOVA SDK!";
-        let encrypted = sdk.encrypt_data(original_data, &key_b64).unwrap();
+        // Test with binary data (not valid UTF-8)
+        let original_data = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]; // JPEG header
+        let encrypted = sdk.encrypt_data(&original_data, &key_b64).unwrap();
         let decrypted_b64 = sdk.decrypt_data(&encrypted, &key_b64).unwrap();
         let decrypted_bytes = general_purpose::STANDARD.decode(decrypted_b64).unwrap();
-        let decrypted = String::from_utf8(decrypted_bytes).unwrap();
     
-        assert_eq!(original_data, decrypted);
+        assert_eq!(original_data, decrypted_bytes);
+    }
+
+    #[tokio::test]
+    async fn test_composite_upload_binary_integration() {
+        let private_key = std::env::var("TEST_NEAR_PRIVATE_KEY").ok();
+        let account_id = std::env::var("TEST_NEAR_ACCOUNT_ID").ok();
+        if private_key.is_none() || account_id.is_none() {
+            println!("Skipping: Credentials not set");
+            return;
+        }
+        
+        let pinata_key = std::env::var("PINATA_API_KEY").unwrap();
+        let pinata_secret = std::env::var("PINATA_SECRET_KEY").unwrap();
+        
+        let sdk = NovaSdk::new(
+            "https://rpc.testnet.near.org",
+            "nova-sdk-2.testnet",
+            &pinata_key,
+            &pinata_secret
+        ).with_signer(&private_key.unwrap(), &account_id.clone().unwrap()).unwrap();
+        
+        // Test with binary image data (PNG header)
+        let binary_data = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A  // PNG magic bytes
+        ];
+        
+        let result = sdk.composite_upload(
+            "test_group",
+            &account_id.unwrap(),
+            &binary_data,
+            "test.png"
+        ).await.unwrap();
+        
+        println!("✅ Binary upload success: {}", result.cid);
+        assert!(!result.cid.is_empty());
     }
 
     #[tokio::test]
     async fn test_composite_upload_no_signer() {
         let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake");
-        let result = sdk.composite_upload("test_group", "user.testnet", "test data", "test.txt").await;
+        let test_data = b"test data";
+        let result = sdk.composite_upload("test_group", "user.testnet", test_data, "test.txt").await;
         // Should fail at get_group_key or record_transaction (no signer)
         assert!(result.is_err());
     }
@@ -882,7 +916,7 @@ mod tests {
     #[tokio::test]
     async fn test_composite_retrieve_no_signer() {
         let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake");
-        let result: Result<CompositeRetrieveResult, _> = sdk.composite_retrieve("test_group", "QmDummyCID").await;
+        let result = sdk.composite_retrieve("test_group", "QmDummyCID").await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), NovaError::Signing(_)));
     }
