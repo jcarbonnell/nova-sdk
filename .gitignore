@@ -23,3 +23,5 @@ yarn-error.log
 
 # NOVA sdk RS
 nova-sdk-rs/Cargo.lock
+nova-sdk-rs/target
+nova-sdk-rs/.env
