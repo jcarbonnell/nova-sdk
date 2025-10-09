@@ -1,4 +1,6 @@
 use nova_sdk_rs::{NovaSdk, NovaError};
+use rand::RngCore; // Import RngCore trait for fill_bytes
+use base64::{Engine as _, engine::general_purpose}; // New base64 API
 
 #[tokio::test]
 async fn test_get_balance_integration() {
@@ -129,4 +131,335 @@ async fn test_with_real_signer() {
     
     println!("✅ Successfully authenticated with account: {}", account_id);
     println!("   Balance: {} yoctoNEAR", balance);
+}
+
+#[tokio::test]
+async fn test_is_authorized_integration() {
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret"
+    );
+    
+    // Test with a likely non-member user and existing group (adjust group_id if known)
+    let authorized = sdk.is_authorized("test_group", "random.user.testnet").await.unwrap();
+    
+    // Expect false for unauthorized user
+    assert!(!authorized, "Random user should not be authorized in test_group");
+}
+
+#[tokio::test]
+async fn test_is_authorized_nonexistent_group() {
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret"
+    );
+    
+    // Non-existent group should cause contract panic → RPC error
+    let result = sdk.is_authorized("nonexistent_group_123", "test.user.testnet").await;
+    assert!(result.is_err(), "Invalid group should fail with error");
+    assert!(matches!(result.err().unwrap(), NovaError::Near(_)));
+}
+
+#[tokio::test]
+async fn test_get_group_key_unauthorized_integration() {
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret"
+    );
+    
+    // Unauthorized user should get RPC error (contract panics)
+    let result = sdk.get_group_key("test_group", "random.user.testnet").await;
+    assert!(result.is_err(), "Unauthorized should fail");
+    assert!(matches!(result.err().unwrap(), NovaError::Near(_)), "Expect Near error from contract panic");
+}
+
+#[tokio::test]
+async fn test_get_group_key_authorized_integration() {
+    // Skip unless TEST_NEAR_ACCOUNT_ID set (assumes account is member of test_group)
+    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_get_group_key_authorized_integration: TEST_NEAR_ACCOUNT_ID not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret"
+    );
+    
+    let key = sdk.get_group_key("test_group", &account_id).await.unwrap();
+    assert!(!key.is_empty(), "Authorized key should be non-empty base64");
+    assert!(key.len() > 20, "Base64 key should be reasonable length (e.g., 44 chars for 32 bytes)");
+    
+    println!("✅ Retrieved group key for authorized account: {}", account_id);
+    println!("   Key length: {} chars", key.len());
+}
+
+#[tokio::test]
+async fn test_get_group_key_nonexistent_group() {
+    let sdk = NovaSdk::new(
+        "https://rpc.testnet.near.org",
+        "nova-sdk-2.testnet",
+        "fake_key",
+        "fake_secret"
+    );
+    
+    // Non-existent group should cause contract panic → RPC error
+    let result = sdk.get_group_key("nonexistent_group_123", "test.user.testnet").await;
+    assert!(result.is_err(), "Invalid group should fail with error");
+    assert!(matches!(result.err().unwrap(), NovaError::Near(_)));
+}
+
+#[tokio::test]
+async fn test_revoke_group_member_integration() {
+    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_revoke_group_member_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_revoke_group_member_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake")
+        .with_signer(&private_key, &account_id).unwrap();
+    
+    // Assume a known member exists; revoke and verify post-revoke with is_authorized
+    let member_to_revoke = "known.member.testnet"; // Replace with actual test member if needed
+    let result_revoke = sdk.revoke_group_member("test_group", member_to_revoke).await;
+    match result_revoke {
+        Ok(_) => {
+            println!("✅ Revoked member: {}", member_to_revoke);
+            // Verify: Check is_authorized now false
+            let authorized_after = sdk.is_authorized("test_group", member_to_revoke).await.unwrap();
+            assert!(!authorized_after, "Member should no longer be authorized after revoke");
+        }
+        Err(e) => if e.to_string().contains("not a member") { 
+            println!("Not a member - expected if already revoked") 
+        } else { 
+            panic!("Unexpected: {}", e) 
+        },
+    }
+}
+
+#[tokio::test]
+async fn test_store_group_key_integration() {
+    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_store_group_key_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let account_id_str = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_store_group_key_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake")
+        .with_signer(&private_key, &account_id_str).unwrap();
+    
+    // Generate dummy 32-byte base64 key
+    let mut rng = rand::thread_rng();
+    let mut key_bytes = [0u8; 32];
+    rng.fill_bytes(&mut key_bytes);
+    let key_b64 = general_purpose::STANDARD.encode(key_bytes);
+    
+    let result = sdk.store_group_key("test_group", &key_b64).await;
+    match result {
+        Ok(_) => {
+            println!("✅ Stored group key for test_group");
+            // Verify: Fetch and check length
+            let fetched_key = sdk.get_group_key("test_group", &account_id_str).await.unwrap();
+            assert_eq!(fetched_key, key_b64, "Stored and fetched key should match");
+        }
+        Err(e) => panic!("Unexpected store error: {}", e),
+    }
+}
+
+#[tokio::test]
+async fn test_record_transaction_integration() {
+    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_record_transaction_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let account_id_str = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_record_transaction_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", "fake", "fake")
+        .with_signer(&private_key, &account_id_str).unwrap();
+    
+    // Dummy data for tx
+    let dummy_file_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // SHA256 of empty
+    let dummy_ipfs_hash = "QmDummyCIDForTest";
+    
+    let result = sdk.record_transaction("test_group", &account_id_str, dummy_file_hash, dummy_ipfs_hash).await;
+    match result {
+        Ok(trans_id) => {
+            println!("✅ Recorded transaction: {}", trans_id);
+            assert!(!trans_id.is_empty(), "Trans_id should be non-empty hex");
+            assert!(trans_id.len() > 40, "Trans_id should be reasonable hex length");
+        }
+        Err(e) => if e.to_string().contains("not authorized") { 
+            println!("Auth fail - expected if not member") 
+        } else { 
+            panic!("Unexpected: {}", e) 
+        },
+    }
+}
+
+#[tokio::test]
+async fn test_composite_upload_integration() {
+    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_composite_upload_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_composite_upload_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let pinata_key = match std::env::var("PINATA_API_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_composite_upload_integration: PINATA_API_KEY not set");
+            return;
+        }
+    };
+    
+    let pinata_secret = match std::env::var("PINATA_SECRET_KEY") {
+        Ok(secret) => secret,
+        Err(_) => {
+            println!("Skipping test_composite_upload_integration: PINATA_SECRET_KEY not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", &pinata_key, &pinata_secret)
+        .with_signer(&private_key, &account_id).unwrap();
+    
+    let test_data = "Test data for composite upload";
+    let result = sdk.composite_upload("test_group", &account_id, test_data, "test.txt").await;
+    
+    match result {
+        Ok(res) => {
+            println!("✅ Composite upload success:");
+            println!("   CID: {}", res.cid);
+            println!("   Trans ID: {}", res.trans_id);
+            println!("   File Hash: {}", res.file_hash);
+            assert!(!res.cid.is_empty());
+            assert!(!res.trans_id.is_empty());
+            assert_eq!(res.file_hash.len(), 64); // SHA-256 hex
+        }
+        Err(e) => panic!("Composite upload failed: {}", e),
+    }
+}
+
+#[tokio::test]
+async fn test_composite_retrieve_integration() {
+    let private_key = match std::env::var("TEST_NEAR_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_composite_retrieve_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let account_id = match std::env::var("TEST_NEAR_ACCOUNT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Skipping test_composite_retrieve_integration: Credentials not set");
+            return;
+        }
+    };
+    
+    let pinata_key = match std::env::var("PINATA_API_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("Skipping test_composite_retrieve_integration: PINATA_API_KEY not set");
+            return;
+        }
+    };
+    
+    let pinata_secret = match std::env::var("PINATA_SECRET_KEY") {
+        Ok(secret) => secret,
+        Err(_) => {
+            println!("Skipping test_composite_retrieve_integration: PINATA_SECRET_KEY not set");
+            return;
+        }
+    };
+    
+    let sdk = NovaSdk::new("https://rpc.testnet.near.org", "nova-sdk-2.testnet", &pinata_key, &pinata_secret)
+        .with_signer(&private_key, &account_id).unwrap();
+    
+    // First, upload test data to get a valid CID
+    let test_data = "Test data for composite retrieve";
+    let upload_result = sdk.composite_upload("test_group", &account_id, test_data, "retrieve_test.txt").await;
+    
+    let cid = match upload_result {
+        Ok(res) => {
+            println!("✅ Upload successful, CID: {}", res.cid);
+            res.cid
+        }
+        Err(e) => {
+            panic!("Upload failed, cannot test retrieve: {}", e);
+        }
+    };
+    
+    // Now test retrieve
+    let retrieve_result = sdk.composite_retrieve("test_group", &cid).await;
+    
+    match retrieve_result {
+        Ok(res) => {
+            println!("✅ Composite retrieve success:");
+            println!("   File Hash: {}", res.file_hash);
+            println!("   Decrypted data length: {} bytes", res.decrypted_b64.len());
+            
+            // Verify decrypted data matches original
+            let decrypted_bytes = general_purpose::STANDARD.decode(&res.decrypted_b64).unwrap();
+            let decrypted_text = String::from_utf8(decrypted_bytes).unwrap();
+            assert_eq!(decrypted_text, test_data, "Decrypted data should match original");
+            assert_eq!(res.file_hash.len(), 64, "File hash should be 64 chars (SHA-256 hex)");
+            
+            println!("✅ Decrypted text matches original: '{}'", decrypted_text);
+        }
+        Err(e) => panic!("Composite retrieve failed: {}", e),
+    }
 }
